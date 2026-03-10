@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+html.dark body {
+  color: #e2e8f0;
+  background: #0f172a;
+}
+
+html:not(.dark) body {
+  color: #111827;
+  background: #f9fafb;
+}
+
+:root {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #334155;
+  --border: #334155;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --accent: #6366f1;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* ── AG Grid dark theme — slate palette ──────────────────────────────────── */
+.ag-theme-alpine-dark {
+  --ag-background-color: #0f172a;
+  --ag-foreground-color: #e2e8f0;
+  --ag-header-background-color: #1e293b;
+  --ag-header-foreground-color: #94a3b8;
+  --ag-odd-row-background-color: #0f172a;
+  --ag-row-hover-color: #1e293b;
+  --ag-selected-row-background-color: rgba(99,102,241,0.15);
+  --ag-border-color: #334155;
+  --ag-secondary-border-color: #1e293b;
+  --ag-row-border-color: #1e293b;
+  --ag-cell-horizontal-border: solid #1e293b;
+  --ag-header-column-separator-color: #334155;
+  --ag-input-focus-border-color: #6366f1;
+  --ag-range-selection-border-color: #6366f1;
+  --ag-checkbox-checked-color: #6366f1;
+  --ag-chip-background-color: #1e293b;
+  --ag-control-panel-background-color: #1e293b;
+  --ag-side-button-selected-background-color: #1e293b;
+  --ag-tooltip-background-color: #334155;
+  --ag-tooltip-foreground-color: #e2e8f0;
+  --ag-font-size: 13px;
+  --ag-grid-size: 4px;
+  --ag-list-item-height: 30px;
+  --ag-row-height: 36px;
+  --ag-header-height: 36px;
+  --ag-floating-filter-height: 30px;
+}
+.ag-theme-alpine-dark .ag-floating-filter-input {
+  background-color: #1e293b;
+  color: #e2e8f0;
+  border-color: #334155;
+}
+.ag-theme-alpine-dark .ag-cell-inline-editing {
+  background-color: #1e293b;
+  border-color: #6366f1 !important;
+}
+.ag-theme-alpine-dark .ag-cell-inline-editing input {
+  color: #e2e8f0;
+  background-color: #1e293b;
+}
+.ag-theme-alpine-dark .ag-popup-editor {
+  background-color: #1e293b;
+  border-color: #334155;
+}
+.ag-theme-alpine-dark .ag-filter-toolpanel-header,
+.ag-theme-alpine-dark .ag-column-drop-empty-message {
+  color: #94a3b8;
+}
+
+@keyframes nodeEnter {
+  from { opacity: 0; transform: translateY(-10px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
