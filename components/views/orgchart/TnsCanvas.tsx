@@ -173,6 +173,14 @@ export default function TnsCanvas() {
   const { fitView, setCenter } = useReactFlow()
   const { zoom } = useViewport()
   const { drillPath, drillRootId, drillInto, drillTo } = useOrgDrill()
+  const initializedRef = useRef(false)
+
+  useEffect(() => {
+    if (!initializedRef.current && filtered.length > 0) {
+      initializedRef.current = true
+      setCollapsedSet(new Set(filtered.map(s => s.codice)))
+    }
+  }, [filtered])
 
   // Ancestor chain + direct children only
   const drilledFiltered = useMemo(() => {

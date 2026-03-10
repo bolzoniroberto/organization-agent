@@ -94,6 +94,14 @@ export default function PersoneCanvas() {
   const { fitView, setCenter } = useReactFlow()
   const { zoom } = useViewport()
   const { drillPath, drillRootId, drillInto, drillTo } = useOrgDrill()
+  const initializedRef = useRef(false)
+
+  useEffect(() => {
+    if (!initializedRef.current && timesheet.length > 0) {
+      initializedRef.current = true
+      setCollapsedSet(new Set(timesheet.map(t => t.cf_dipendente)))
+    }
+  }, [timesheet])
 
   // Ancestor chain + direct children only
   const drilledTimesheet = useMemo(() => {

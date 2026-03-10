@@ -214,6 +214,14 @@ export default function PosizioniCanvas() {
   const { fitView, setCenter } = useReactFlow()
   const { zoom } = useViewport()
   const { drillPath, drillRootId, drillInto, drillTo } = useOrgDrill()
+  const initializedRef = useRef(false)
+
+  useEffect(() => {
+    if (!initializedRef.current && filtered.length > 0) {
+      initializedRef.current = true
+      setCollapsedSet(new Set(filtered.map(n => n.id)))
+    }
+  }, [filtered])
 
   const sediList = useMemo(() => {
     const s = new Set<string>()
