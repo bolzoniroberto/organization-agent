@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { api } from '../lib/api'
 import type {
   NodoOrganigramma, Persona, SupervisioneTimesheet, RuoloTns, StrutturaTns,
-  ActiveSection, ActiveView, VariabileOrgDefinizione
+  ActiveSection, ActiveView, VariabileOrgDefinizione, VariabileOrgValore
 } from '../types'
 
 interface HRStore {
@@ -17,6 +17,7 @@ interface HRStore {
   tns: RuoloTns[]
   struttureTns: StrutturaTns[]
   variabiliDef: VariabileOrgDefinizione[]
+  variabiliValori: VariabileOrgValore[]
   counts: { nodi: number; persone: number; timesheet: number; tns: number; struttureTns: number } | null
 
   loading: boolean
@@ -32,6 +33,7 @@ interface HRStore {
   refreshTns: () => Promise<void>
   refreshStruttureTns: () => Promise<void>
   refreshVariabiliDef: () => Promise<void>
+  refreshVariabiliValori: () => Promise<void>
   refreshCounts: () => Promise<void>
   refreshAll: () => Promise<void>
 }
@@ -48,6 +50,7 @@ export const useHRStore = create<HRStore>((set, get) => ({
   tns: [],
   struttureTns: [],
   variabiliDef: [],
+  variabiliValori: [],
   counts: null,
   loading: false,
 
@@ -90,6 +93,11 @@ export const useHRStore = create<HRStore>((set, get) => ({
     set({ variabiliDef })
   },
 
+  refreshVariabiliValori: async () => {
+    const variabiliValori = await api.variabili.listValori()
+    set({ variabiliValori })
+  },
+
   refreshCounts: async () => {
     const counts = await api.stats.counts()
     set({ counts })
@@ -98,7 +106,7 @@ export const useHRStore = create<HRStore>((set, get) => ({
   refreshAll: async () => {
     set({ loading: true })
     try {
-      const [nodi, persone, timesheet, tns, struttureTns, counts, variabiliDef] = await Promise.all([
+      const [nodi, persone, timesheet, tns, struttureTns, counts, variabiliDef, variabiliValori] = await Promise.all([
         api.org.list(false),
         api.persone.list(false),
         api.timesheet.list(),
@@ -106,8 +114,9 @@ export const useHRStore = create<HRStore>((set, get) => ({
         api.struttureTns.list(),
         api.stats.counts(),
         api.variabili.listDefinizioni(),
+        api.variabili.listValori(),
       ])
-      set({ nodi, persone, timesheet, tns, struttureTns, counts, variabiliDef })
+      set({ nodi, persone, timesheet, tns, struttureTns, counts, variabiliDef, variabiliValori })
     } finally {
       set({ loading: false })
     }

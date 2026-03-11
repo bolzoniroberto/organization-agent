@@ -18,6 +18,7 @@ export default function ImportEnrichView() {
   const [entity, setEntity] = useState<EntityTarget | null>(null)
   const [mode, setMode] = useState<ImportMode | null>(null)
   const [headers, setHeaders] = useState<string[]>([])
+  const [sampleRows, setSampleRows] = useState<Record<string, unknown>[]>([])
   const [sheetName, setSheetName] = useState('')
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [keyField, setKeyField] = useState<string>('')
@@ -50,6 +51,7 @@ export default function ImportEnrichView() {
     try {
       const preview = await api.import.preview(file)
       setHeaders(preview.headers)
+      setSampleRows(preview.sampleRows ?? [])
       setSheetName(preview.sheetNames[0] ?? '')
       setMapping({})
       setKeyField(NATURAL_KEY[entity])  // reset al default quando si cambia step
@@ -126,7 +128,7 @@ export default function ImportEnrichView() {
         {step === 1 && <StepUpload file={file} onFileSelect={setFile} onNext={() => setStep(2)} />}
         {step === 2 && <StepEntity entity={entity} onSelect={setEntity} onNext={() => setStep(3)} onBack={() => setStep(1)} />}
         {step === 3 && <StepMode mode={mode} onSelect={setMode} onNext={handleStep3} onBack={() => setStep(2)} />}
-        {step === 4 && <StepMapping headers={headers} entity={entity!} mapping={mapping} keyField={keyField || NATURAL_KEY[entity!]} onMappingChange={setMapping} onKeyFieldChange={k => { setKeyField(k); setMapping({}) }} onNext={() => setStep(5)} onBack={() => setStep(3)} />}
+        {step === 4 && <StepMapping headers={headers} sampleRows={sampleRows} entity={entity!} mapping={mapping} keyField={keyField || NATURAL_KEY[entity!]} onMappingChange={setMapping} onKeyFieldChange={k => { setKeyField(k); setMapping({}) }} onNext={() => setStep(5)} onBack={() => setStep(3)} />}
         {step === 5 && <StepPreview result={dryRunResult} loading={dryRunLoading} onRefresh={loadPreview} onExecute={handleExecute} onBack={() => setStep(4)} executing={executing} />}
       </div>
     </div>

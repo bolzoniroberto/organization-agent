@@ -285,6 +285,11 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
         }
 
         // Handle var mappings — usa la PK naturale come entita_id
+        const ENTITY_TIPO: Record<EntityTarget, string> = {
+          nodi_org: 'nodo_org', persone: 'persona', timesheet: 'timesheet',
+          tns: 'tns', strutture_tns: 'struttura_tns',
+        }
+        const entitaTipo = ENTITY_TIPO[entity]
         const entitaId = existing ? String(existing[naturalKey]) : (isNaturalKey ? key : null)
         if (entitaId) {
           for (const [varId, col] of Object.entries(varMappings)) {
@@ -292,13 +297,13 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
             if (!existing && mode === 'INTEGRATIVA') continue
             if (mode === 'INTEGRATIVA') {
               const curr = d.prepare('SELECT valore FROM variabili_org_valori WHERE entita_tipo = ? AND entita_id = ? AND var_id = ?')
-                .get(entity === 'nodi_org' ? 'nodo_org' : 'persona', entitaId, Number(varId)) as { valore: string | null } | undefined
+                .get(entitaTipo, entitaId, Number(varId)) as { valore: string | null } | undefined
               if (curr?.valore != null) continue
             }
             d.prepare(`INSERT INTO variabili_org_valori (entita_tipo, entita_id, var_id, valore, updated_at)
               VALUES (@entita_tipo, @entita_id, @var_id, @valore, CURRENT_TIMESTAMP)
               ON CONFLICT(entita_tipo, entita_id, var_id) DO UPDATE SET valore = excluded.valore, updated_at = CURRENT_TIMESTAMP`).run({
-              entita_tipo: entity === 'nodi_org' ? 'nodo_org' : 'persona',
+              entita_tipo: entitaTipo,
               entita_id: entitaId,
               var_id: Number(varId),
               valore

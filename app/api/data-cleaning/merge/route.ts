@@ -58,9 +58,16 @@ export async function POST(req: NextRequest) {
       d.prepare(`UPDATE supervisioni_timesheet SET cf_supervisore = ? WHERE cf_supervisore = ?`).run(survivorId, victimId)
       writeChangeLog('timesheet', victimId, null, 'UPDATE', 'cf_dipendente', victimId, survivorId)
 
-      // Aggiorna ruoli_tns
-      d.prepare(`UPDATE ruoli_tns SET cf_persona = ? WHERE cf_persona = ?`).run(survivorId, victimId)
-      writeChangeLog('ruolo_tns', victimId, null, 'UPDATE', 'cf_persona', victimId, survivorId)
+      // Aggiorna ruoli_tns — TNS è univoco per CF:
+      // se il survivor non ha già un ruolo_tns, sposta il victim; altrimenti cancella il victim
+      const survivorTns = d.prepare(`SELECT cf_persona FROM ruoli_tns WHERE cf_persona = ?`).get(survivorId)
+      if (!survivorTns) {
+        d.prepare(`UPDATE ruoli_tns SET cf_persona = ? WHERE cf_persona = ?`).run(survivorId, victimId)
+        writeChangeLog('ruolo_tns', victimId, null, 'UPDATE', 'cf_persona', victimId, survivorId)
+      } else {
+        d.prepare(`DELETE FROM ruoli_tns WHERE cf_persona = ?`).run(victimId)
+        writeChangeLog('ruolo_tns', victimId, null, 'DELETE', null, null, `victim tns removed on merge into ${survivorId}`)
+      }
 
       // Soft delete victim
       d.prepare(`UPDATE persone SET deleted_at = datetime('now') WHERE cf = ?`).run(victimId)

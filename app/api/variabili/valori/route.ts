@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
+export async function GET() {
+  try {
+    const rows = db().prepare('SELECT * FROM variabili_org_valori').all()
+    return NextResponse.json(rows)
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const d = db()

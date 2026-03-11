@@ -87,7 +87,7 @@ const TIPO_NODO_BADGE: Record<string, string> = {
 }
 
 export default function AnagraficaView() {
-  const { nodi, persone, tns, struttureTns, variabiliDef, refreshAll, refreshTns, refreshStruttureTns, showToast, activeView } = useHRStore()
+  const { nodi, persone, tns, struttureTns, variabiliDef, variabiliValori, refreshAll, refreshTns, refreshStruttureTns, showToast, activeView } = useHRStore()
   const [subTab, setSubTab] = useState<SubTab>('nodi')
   const [search, setSearch] = useState('')
   const [showDeleted, setShowDeleted] = useState(false)
@@ -181,7 +181,7 @@ export default function AnagraficaView() {
       tipo_collab: { field: 'tipo_collab', headerName: 'Tipo Collab', width: 120, editable: true, cellClass: 'text-xs text-slate-400' },
     }
     NODI_ALL_COLS.filter(c => nodiVisible.has(c.field)).forEach(c => { if (colMap[c.field]) base.push(colMap[c.field]) })
-    variabiliDef.filter(v => visibleVars.has(v.id) && (v.target === 'nodo' || v.target === 'entrambi')).forEach(v => {
+    variabiliDef.filter(v => visibleVars.has(v.id) && (v.target === 'nodo' || v.target === 'tutti')).forEach(v => {
       base.push({ field: `var_${v.id}`, headerName: v.label, width: 130, editable: true, cellClass: 'text-xs text-indigo-300', headerClass: 'italic' })
     })
     base.push({
@@ -215,6 +215,9 @@ export default function AnagraficaView() {
       data_assunzione: { field: 'data_assunzione', headerName: 'Assunzione', width: 110, editable: true, cellClass: 'text-xs text-slate-400' },
     }
     PERSONE_ALL_COLS.filter(c => personeVisible.has(c.field)).forEach(c => { if (colMap[c.field]) base.push(colMap[c.field]) })
+    variabiliDef.filter(v => visibleVars.has(v.id) && (v.target === 'persona' || v.target === 'tutti')).forEach(v => {
+      base.push({ field: `var_${v.id}`, headerName: v.label, width: 130, editable: true, cellClass: 'text-xs text-indigo-300', headerClass: 'italic' })
+    })
     base.push({
       headerName: '', width: 46, pinned: 'right', sortable: false, editable: false, filter: false, floatingFilter: false, suppressFillHandle: true,
       cellRenderer: (p: ICellRendererParams) => (
@@ -224,7 +227,7 @@ export default function AnagraficaView() {
       )
     })
     return base
-  }, [personeVisible, openDrawer])
+  }, [personeVisible, variabiliDef, visibleVars, openDrawer])
 
   // ── ColDef: TNS ───────────────────────────────────────────────────────────
   const tnsCols: ColDef[] = useMemo(() => {
@@ -250,8 +253,11 @@ export default function AnagraficaView() {
       sede_tns: { field: 'sede_tns', headerName: 'Sede TNS', width: 110, editable: true, cellClass: 'text-xs text-slate-400' },
     }
     TNS_ALL_COLS.filter(c => tnsVisible.has(c.field)).forEach(c => { if (colMap[c.field]) base.push(colMap[c.field]) })
+    variabiliDef.filter(v => visibleVars.has(v.id) && (v.target === 'tns' || v.target === 'tutti')).forEach(v => {
+      base.push({ field: `var_${v.id}`, headerName: v.label, width: 130, editable: true, cellClass: 'text-xs text-indigo-300', headerClass: 'italic' })
+    })
     return base
-  }, [tnsVisible])
+  }, [tnsVisible, variabiliDef, visibleVars])
 
   // ── ColDef: Strutture TNS ─────────────────────────────────────────────────
   const struttTnsCols: ColDef[] = useMemo(() => {
@@ -268,6 +274,9 @@ export default function AnagraficaView() {
       attivo: { field: 'attivo', headerName: 'Attivo', width: 80, editable: true, type: 'numericColumn', cellClass: 'text-xs text-center text-slate-400' },
     }
     STRUTT_TNS_ALL_COLS.filter(c => struttTnsVisible.has(c.field)).forEach(c => { if (colMap[c.field]) base.push(colMap[c.field]) })
+    variabiliDef.filter(v => visibleVars.has(v.id) && (v.target === 'struttura_tns' || v.target === 'tutti')).forEach(v => {
+      base.push({ field: `var_${v.id}`, headerName: v.label, width: 130, editable: true, cellClass: 'text-xs text-indigo-300', headerClass: 'italic' })
+    })
     base.push({
       headerName: '', width: 46, pinned: 'right', sortable: false, editable: false, filter: false, floatingFilter: false, suppressFillHandle: true,
       cellRenderer: (p: ICellRendererParams) => (
@@ -277,7 +286,22 @@ export default function AnagraficaView() {
       )
     })
     return base
-  }, [struttTnsVisible])
+  }, [struttTnsVisible, variabiliDef, visibleVars])
+
+  // ── Merge variabili values into row data ──────────────────────────────────
+  const vByEntityId = useMemo(() => {
+    const map = new Map<string, Record<string, string | null>>()
+    for (const v of variabiliValori) {
+      const key = `${v.entita_tipo}::${v.entita_id}`
+      if (!map.has(key)) map.set(key, {})
+      map.get(key)![`var_${v.var_id}`] = v.valore
+    }
+    return map
+  }, [variabiliValori])
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const withVars = (rows: any[], tipo: string, idField: string): any[] =>
+    rows.map(r => ({ ...r, ...vByEntityId.get(`${tipo}::${String(r[idField])}`) }))
 
   // ── Filtered data ─────────────────────────────────────────────────────────
   const filteredNodi = useMemo(() => {
@@ -326,7 +350,9 @@ export default function AnagraficaView() {
 
   // ── Columns panel meta ────────────────────────────────────────────────────
   const visibleCols = subTab === 'nodi' ? nodiVisible : subTab === 'persone' ? personeVisible : subTab === 'strutture-tns' ? struttTnsVisible : tnsVisible
+  const setVisibleCols = subTab === 'nodi' ? setNodiVisible : subTab === 'persone' ? setPersoneVisible : subTab === 'strutture-tns' ? setStruttTnsVisible : setTnsVisible
   const allCols = subTab === 'nodi' ? NODI_ALL_COLS : subTab === 'persone' ? PERSONE_ALL_COLS : subTab === 'strutture-tns' ? STRUTT_TNS_ALL_COLS : TNS_ALL_COLS
+  const defaultCols = subTab === 'nodi' ? NODI_DEFAULT_VISIBLE : subTab === 'persone' ? PERSONE_DEFAULT_VISIBLE : subTab === 'strutture-tns' ? STRUTT_TNS_DEFAULT_VISIBLE : TNS_DEFAULT_VISIBLE
   const canShowColumnsPanel = subTab === 'nodi' || subTab === 'persone' || subTab === 'tns' || subTab === 'strutture-tns'
   const isGridTab = subTab === 'nodi' || subTab === 'persone' || subTab === 'tns' || subTab === 'strutture-tns'
 
@@ -404,7 +430,7 @@ export default function AnagraficaView() {
       <div className="flex-1 ag-theme-alpine-dark overflow-hidden">
         {subTab === 'nodi' && (
           <AgGridReact
-            rowData={filteredNodi}
+            rowData={withVars(filteredNodi, 'nodo_org', 'id')}
             columnDefs={nodiCols}
             defaultColDef={{ resizable: true, sortable: true, filter: true, floatingFilter: true }}
             getRowClass={getRowClass}
@@ -419,7 +445,7 @@ export default function AnagraficaView() {
         )}
         {subTab === 'persone' && (
           <AgGridReact
-            rowData={filteredPersone}
+            rowData={withVars(filteredPersone, 'persona', 'cf')}
             columnDefs={personeCols}
             defaultColDef={{ resizable: true, sortable: true, filter: true, floatingFilter: true }}
             getRowClass={getRowClass}
@@ -434,7 +460,7 @@ export default function AnagraficaView() {
         )}
         {subTab === 'tns' && (
           <AgGridReact
-            rowData={filteredTns}
+            rowData={withVars(filteredTns, 'tns', 'cf_persona')}
             columnDefs={tnsCols}
             defaultColDef={{ resizable: true, sortable: true, filter: true, floatingFilter: true }}
             rowSelection="multiple"
@@ -448,7 +474,7 @@ export default function AnagraficaView() {
         )}
         {subTab === 'strutture-tns' && (
           <AgGridReact
-            rowData={filteredStruttTns}
+            rowData={withVars(filteredStruttTns, 'struttura_tns', 'codice')}
             columnDefs={struttTnsCols}
             defaultColDef={{ resizable: true, sortable: true, filter: true, floatingFilter: true }}
             rowSelection="multiple"
@@ -466,27 +492,21 @@ export default function AnagraficaView() {
 
       {showColumnsPanel && canShowColumnsPanel && (
         <ColumnsPanel
-          entityType={subTab === 'tns' || subTab === 'strutture-tns' ? 'nodi' : subTab}
+          entityType={subTab as 'nodi' | 'persone' | 'tns' | 'strutture-tns'}
           allColumns={allCols}
           visibleColumns={visibleCols}
           onToggle={field => {
-            const setter = subTab === 'nodi' ? setNodiVisible : subTab === 'persone' ? setPersoneVisible : subTab === 'strutture-tns' ? setStruttTnsVisible : setTnsVisible
-            setter(prev => {
+            setVisibleCols(prev => {
               const next = new Set(prev)
               if (next.has(field)) next.delete(field)
               else next.add(field)
               return next
             })
           }}
-          onReset={() => {
-            if (subTab === 'nodi') setNodiVisible(new Set(NODI_DEFAULT_VISIBLE))
-            else if (subTab === 'persone') setPersoneVisible(new Set(PERSONE_DEFAULT_VISIBLE))
-            else if (subTab === 'strutture-tns') setStruttTnsVisible(new Set(STRUTT_TNS_DEFAULT_VISIBLE))
-            else setTnsVisible(new Set(TNS_DEFAULT_VISIBLE))
-          }}
+          onReset={() => setVisibleCols(new Set(defaultCols))}
           onClose={() => setShowColumnsPanel(false)}
-          variabili={subTab === 'tns' || subTab === 'strutture-tns' ? [] : variabiliDef}
-          visibleVars={subTab === 'tns' || subTab === 'strutture-tns' ? new Set() : visibleVars}
+          variabili={variabiliDef}
+          visibleVars={visibleVars}
           onToggleVar={varId => setVisibleVars(prev => {
             const next = new Set(prev)
             if (next.has(varId)) next.delete(varId)

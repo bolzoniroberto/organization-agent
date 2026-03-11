@@ -4,7 +4,7 @@ import { X } from 'lucide-react'
 import type { VariabileOrgDefinizione } from '@/types'
 
 interface ColumnsPanelProps {
-  entityType: 'nodi' | 'persone'
+  entityType: 'nodi' | 'persone' | 'tns' | 'strutture-tns'
   allColumns: { field: string; label: string }[]
   visibleColumns: Set<string>
   onToggle: (field: string) => void
@@ -15,16 +15,21 @@ interface ColumnsPanelProps {
   onToggleVar: (varId: number) => void
 }
 
+const ENTITY_VAR_TARGET: Record<string, string> = {
+  nodi: 'nodo',
+  persone: 'persona',
+  tns: 'tns',
+  'strutture-tns': 'struttura_tns',
+}
+
 export default function ColumnsPanel({
   allColumns, visibleColumns, onToggle, onReset, onClose,
   variabili, visibleVars, onToggleVar, entityType
 }: ColumnsPanelProps) {
-  const compatibleVars = variabili.filter(v => {
-    if (v.target === 'entrambi') return true
-    if (entityType === 'nodi') return v.target === 'nodo'
-    if (entityType === 'persone') return v.target === 'persona'
-    return false
-  })
+  const varTarget = ENTITY_VAR_TARGET[entityType]
+  const compatibleVars = variabili.filter(v =>
+    v.target === 'tutti' || v.target === varTarget
+  )
 
   return (
     <div className="fixed inset-0 z-50 flex">

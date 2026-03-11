@@ -168,6 +168,9 @@ export const api = {
     deleteDefinizione: (id: number): Promise<{ success: boolean; error?: string; count?: number }> =>
       fetch(u(`/api/variabili/definizioni/${id}`), { method: 'DELETE' }).then(r => json(r)),
 
+    listValori: (): Promise<VariabileOrgValore[]> =>
+      fetch(u('/api/variabili/valori')).then(r => json(r)),
+
     getValori: (entitaTipo: string, entitaId: string): Promise<(VariabileOrgValore & { nome: string; label: string; tipo: string })[]> =>
       fetch(u(`/api/variabili/valori/${encodeURIComponent(entitaTipo)}/${encodeURIComponent(entitaId)}`)).then(r => json(r)),
 

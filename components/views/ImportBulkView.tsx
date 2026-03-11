@@ -16,6 +16,7 @@ export default function ImportBulkView() {
   const [file, setFile] = useState<File | null>(null)
   const [entity, setEntity] = useState<EntityTarget | null>(null)
   const [headers, setHeaders] = useState<string[]>([])
+  const [sampleRows, setSampleRows] = useState<Record<string, unknown>[]>([])
   const [sheetName, setSheetName] = useState('')
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [keyField, setKeyField] = useState<string>('')
@@ -55,6 +56,7 @@ export default function ImportBulkView() {
     try {
       const preview = await api.import.preview(file)
       setHeaders(preview.headers)
+      setSampleRows(preview.sampleRows ?? [])
       setSheetName(preview.sheetNames[0] ?? '')
       setMapping({})
     } catch (e) {
@@ -129,7 +131,7 @@ export default function ImportBulkView() {
       <div className="flex-1 overflow-y-auto">
         {step === 1 && <StepUpload file={file} onFileSelect={setFile} onNext={() => setStep(2)} />}
         {step === 2 && <StepEntity entity={entity} onSelect={setEntity} onNext={handleStep2} onBack={() => setStep(1)} />}
-        {step === 3 && <StepMapping headers={headers} entity={entity!} mapping={mapping} keyField={keyField || NATURAL_KEY[entity!]} onMappingChange={setMapping} onKeyFieldChange={k => { setKeyField(k); setMapping({}) }} onNext={() => setStep(4)} onBack={() => setStep(2)} />}
+        {step === 3 && <StepMapping headers={headers} sampleRows={sampleRows} entity={entity!} mapping={mapping} keyField={keyField || NATURAL_KEY[entity!]} onMappingChange={setMapping} onKeyFieldChange={k => { setKeyField(k); setMapping({}) }} onNext={() => setStep(4)} onBack={() => setStep(2)} />}
         {step === 4 && <StepPreview result={dryRunResult} loading={dryRunLoading} onRefresh={loadPreview} onExecute={handleExecute} onBack={() => setStep(3)} executing={executing} />}
       </div>
     </div>

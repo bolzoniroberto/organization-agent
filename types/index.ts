@@ -114,12 +114,14 @@ export interface ImportReport {
   anomalie: number
 }
 
+export type VarTarget = 'nodo' | 'persona' | 'timesheet' | 'tns' | 'struttura_tns' | 'tutti'
+
 export interface VariabileOrgDefinizione {
   id: number
   nome: string
   label: string
   tipo: 'TEXT' | 'NUMBER' | 'DATE' | 'BOOLEAN' | 'SELECT'
-  target: 'nodo' | 'persona' | 'entrambi'
+  target: VarTarget
   opzioni: string | null
   descrizione: string | null
   ordine: number
@@ -127,7 +129,7 @@ export interface VariabileOrgDefinizione {
 
 export interface VariabileOrgValore {
   id: number
-  entita_tipo: 'nodo_org' | 'persona'
+  entita_tipo: string
   entita_id: string
   var_id: number
   valore: string | null

@@ -9,7 +9,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { Search, X } from 'lucide-react'
 import { useHRStore } from '@/store/useHRStore'
-import type { NodoOrganigramma } from '@/types'
+import type { NodoOrganigramma, Persona } from '@/types'
 import OrgNode, { type OrgNodeData } from '@/components/orgchart/OrgNode'
 import OrgGroupNode from '@/components/orgchart/OrgGroupNode'
 import NodeContextMenu from '@/components/orgchart/NodeContextMenu'
@@ -30,9 +30,53 @@ const SEDE_GAP = 40
 const SEDE_INNER_COLS = 4
 
 type ColorMode = 'none' | 'sede' | 'funzione' | 'tipo_nodo'
-type ColorScheme = { border: string; bg: string }
-type NodeBox = { x: number; y: number; w: number; h: number }
 
+const NODE_FIELD_OPTIONS = [
+  { value: '', label: '— nessuno —' },
+  { value: 'nome_uo', label: 'Nome UO' },
+  { value: 'cf_persona', label: 'CF Persona' },
+  { value: 'centro_costo', label: 'Centro Costo' },
+  { value: 'funzione', label: 'Funzione' },
+  { value: 'processo', label: 'Processo' },
+  { value: 'sede', label: 'Sede' },
+  { value: 'job_title', label: 'Job Title' },
+  { value: 'societa_org', label: 'Società' },
+  { value: 'tipo_collab', label: 'Tipo Collab' },
+]
+
+const NODE_FIELD_OPTIONS_P3 = [
+  ...NODE_FIELD_OPTIONS,
+  { value: 'p:nome_completo', label: '👤 Nome Cognome' },
+  { value: 'p:email', label: '👤 Email' },
+  { value: 'p:qualifica', label: '👤 Qualifica' },
+  { value: 'p:tipo_contratto', label: '👤 Tipo Contratto' },
+  { value: 'p:societa', label: '👤 Società (persona)' },
+  { value: 'p:area', label: '👤 Area' },
+  { value: 'p:sede', label: '👤 Sede (persona)' },
+  { value: 'p:data_assunzione', label: '👤 Data Assunzione' },
+]
+
+function resolveField(n: NodoOrganigramma, field: string): string | null | undefined {
+  if (!field) return null
+  return (n as unknown as Record<string, unknown>)[field] as string | null
+}
+
+function resolveFieldWithPersona(
+  n: NodoOrganigramma,
+  field: string,
+  personaMap: Map<string, Persona>
+): string | null | undefined {
+  if (!field) return null
+  if (field.startsWith('p:')) {
+    const p = n.cf_persona ? personaMap.get(n.cf_persona) : null
+    if (!p) return null
+    const key = field.slice(2)
+    if (key === 'nome_completo') return `${p.cognome ?? ''} ${p.nome ?? ''}`.trim() || null
+    return (p as unknown as Record<string, unknown>)[key] as string | null
+  }
+  return resolveField(n, field)
+}
+type ColorScheme = { border: string; bg: string }
 /** Semantic status: active=dipendenti diretti, indirect=solo in subtree, empty=nessuno */
 function computeSemanticStatus(nodi: NodoOrganigramma[]): Map<string, 'active' | 'indirect' | 'empty'> {
   const childrenMap = new Map<string, string[]>()
@@ -81,21 +125,12 @@ function buildColorMap(nodi: NodoOrganigramma[], mode: ColorMode): Map<string, C
   ]))
 }
 
-function segmentIntersectsBox(x1: number, y1: number, x2: number, y2: number, box: NodeBox): boolean {
-  const midX = (x1 + x2) / 2
-  const minY = Math.min(y1, y2), maxY = Math.max(y1, y2)
-  return midX >= box.x && midX <= box.x + box.w && maxY >= box.y && minY <= box.y + box.h
-}
-
-function OrgEdge({ id, sourceX, sourceY, targetX, targetY, data, style }: EdgeProps) {
-  const obstructed = (data as { nodeBoxes?: NodeBox[] } | undefined)?.nodeBoxes?.some(
-    box => segmentIntersectsBox(sourceX, sourceY, targetX, targetY, box)
-  ) ?? false
+function OrgEdge({ id, sourceX, sourceY, targetX, targetY, style }: EdgeProps) {
   const [path] = getSmoothStepPath({
     sourceX, sourceY, sourcePosition: Position.Bottom,
     targetX, targetY, targetPosition: Position.Top,
-    borderRadius: obstructed ? 8 : 5,
-    ...(obstructed ? { offset: 40 } : {})
+    borderRadius: 6,
+    offset: 20,
   })
   return <BaseEdge id={id} path={path} style={style} />
 }
@@ -196,7 +231,8 @@ function buildSedeLayout(
 }
 
 export default function PosizioniCanvas() {
-  const { nodi, refreshAll } = useHRStore()
+  const { nodi, persone, refreshAll } = useHRStore()
+  const personaMap = useMemo(() => new Map(persone.map(p => [p.cf, p])), [persone])
   const filtered = useMemo(() => nodi.filter(n => !n.deleted_at), [nodi])
 
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set())
@@ -206,6 +242,7 @@ export default function PosizioniCanvas() {
   const [searchResults, setSearchResults] = useState<NodoOrganigramma[]>([])
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null)
   const [colorMode, setColorMode] = useState<ColorMode>('none')
+  const [nodeFields, setNodeFields] = useState<[string, string, string]>(['nome_uo', 'cf_persona', ''])
   const [viewMode, setViewMode] = useState<'tree' | 'sede'>('tree')
   const [sedeFiltro, setSedeFiltro] = useState<string>('all')
   const [focusedNode, setFocusedNode] = useState<string | null>(null)
@@ -357,7 +394,6 @@ export default function PosizioniCanvas() {
 
     const prevIds = prevVisibleIdsRef.current
     const newParentCount = new Map<string, number>()
-    const nodeBoxes: NodeBox[] = visibleTree.map(tn => ({ x: tn.x, y: tn.y, w: 220, h: 90 }))
 
     const treeNodes = visibleTree.map(tn => {
       const totalChildren = childCountMap.get(tn.id) ?? 0
@@ -390,9 +426,9 @@ export default function PosizioniCanvas() {
         position: { x: tn.x, y: tn.y },
         data: {
           id: tn.id,
-          label: tn.item.nome_uo ?? tn.id,
-          sublabel: tn.item.cf_persona ?? tn.item.centro_costo,
-          extraDetail: tn.item.funzione ?? tn.item.processo,
+          label: resolveField(tn.item, nodeFields[0]) ?? tn.id,
+          sublabel: resolveField(tn.item, nodeFields[1]),
+          extraDetail: resolveFieldWithPersona(tn.item, nodeFields[2], personaMap),
           tipo: tn.item.tipo_nodo,
           collapsed: isCollapsed, hasChildren: totalChildren > 0,
           childrenCount: totalChildren, depth: tn.depth,
@@ -413,14 +449,13 @@ export default function PosizioniCanvas() {
       source: tn.item.reports_to!,
       target: tn.id,
       type: 'orgEdge',
-      data: { nodeBoxes },
       style: { stroke: '#475569', strokeWidth: 1.5 }
     }))
 
     return { nodes: treeNodes as Node[], edges: treeEdges }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, visibleTree, collapsedSet, childCountMap, highlightedNode,
-      toggleCollapse, drilledNodi, colorMode, colorMap, semanticStatusMap, activePath, compactMode, openDrawer])
+      toggleCollapse, drilledNodi, colorMode, colorMap, semanticStatusMap, activePath, compactMode, openDrawer, nodeFields, personaMap])
 
   useEffect(() => {
     prevVisibleIdsRef.current = new Set(nodes.filter(n => n.type === 'orgNode').map(n => n.id))
@@ -455,12 +490,6 @@ export default function PosizioniCanvas() {
     setTimeout(() => setHighlightedNode(null), 2000)
   }, [nodes, setCenter])
 
-  const handleNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
-    if (node.type !== 'orgNode') return
-    setFocusedNode(node.id)
-    setContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
-  }, [])
-
   const handleFocusExpand = useCallback((nodeId: string) => {
     const nodo = filtered.find(n => n.id === nodeId)
     drillInto(nodeId, nodo?.nome_uo ?? nodeId, 'expand', () => {
@@ -476,6 +505,20 @@ export default function PosizioniCanvas() {
       setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
     })
   }, [filtered, drillInto, fitView])
+
+  const handleNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
+    if (node.type !== 'orgNode') return
+    setFocusedNode(node.id)
+    const hasChildren = (childCountMap.get(node.id) ?? 0) > 0
+    if (hasChildren) handleDrillIn(node.id)
+  }, [childCountMap, handleDrillIn])
+
+  const handleNodeContextMenu = useCallback((e: React.MouseEvent, node: Node) => {
+    e.preventDefault()
+    if (node.type !== 'orgNode') return
+    setFocusedNode(node.id)
+    setContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+  }, [])
 
   const handleNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
@@ -585,6 +628,26 @@ export default function PosizioniCanvas() {
           <option value="tipo_nodo">Tipo Nodo</option>
         </select>
 
+        {/* Campi nodo */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-slate-500 whitespace-nowrap">Campi:</span>
+          {([0, 1, 2] as const).map(i => {
+            const opts = i === 2 ? NODE_FIELD_OPTIONS_P3 : NODE_FIELD_OPTIONS
+            return (
+              <select
+                key={i}
+                value={nodeFields[i]}
+                onChange={e => setNodeFields(prev => { const n = [...prev] as [string,string,string]; n[i] = e.target.value; return n })}
+                className="text-xs bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                {opts.filter(o => o.value === '' || o.value === nodeFields[i] || !nodeFields.includes(o.value)).map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            )
+          })}
+        </div>
+
         {/* LOD badge */}
         <span className="text-xs text-slate-500 px-2 py-1 bg-slate-800 rounded border border-slate-700 tabular-nums">
           {compactMode ? 'Compact' : zoom <= 0.4 ? 'Macro' : zoom <= 0.8 ? 'Standard' : 'Micro'}
@@ -639,6 +702,7 @@ export default function PosizioniCanvas() {
             maxZoom={2}
             proOptions={{ hideAttribution: true }}
             onNodeClick={handleNodeClick}
+            onNodeContextMenu={handleNodeContextMenu}
             onNodeDoubleClick={handleNodeDoubleClick}
             onPaneClick={handlePaneClick}
             onNodeMouseEnter={(_, node) => { if (node.type === 'orgNode') setHoveredNode(node.id) }}

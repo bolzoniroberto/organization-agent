@@ -43,25 +43,6 @@ export async function GET() {
       })
     }
 
-    // CF_DUPLICATO_NODI: stesso cf_persona in più nodi attivi
-    const cfDupNodi = d.prepare(`
-      SELECT cf_persona, COUNT(*) as cnt FROM nodi_organigramma
-      WHERE deleted_at IS NULL AND cf_persona IS NOT NULL AND tipo_nodo = 'PERSONA'
-      GROUP BY cf_persona HAVING cnt > 1
-    `).all() as { cf_persona: string; cnt: number }[]
-    for (const row of cfDupNodi) {
-      const records = d.prepare(`SELECT * FROM nodi_organigramma WHERE cf_persona = ? AND deleted_at IS NULL`).all(row.cf_persona) as Record<string, unknown>[]
-      proposals.push({
-        id: hash('CF_DUPLICATO_NODI', row.cf_persona),
-        tipo: 'CF_DUPLICATO_NODI',
-        label: `CF duplicato nei nodi: ${row.cf_persona} (${row.cnt} nodi PERSONA)`,
-        severity: 'high',
-        entityType: 'nodo',
-        records,
-        suggestedAction: 'review',
-      })
-    }
-
     // PERSONA_SENZA_NODO: persona non riferita da nessun nodo
     const personeSenzaNodo = d.prepare(`
       SELECT p.* FROM persone p

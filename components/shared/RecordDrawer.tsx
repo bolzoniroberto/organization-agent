@@ -1,6 +1,6 @@
 'use client'
 import React, { useState, useEffect } from 'react'
-import { X, Trash2, RotateCcw, Sparkles } from 'lucide-react'
+import { X, Trash2, RotateCcw, Sparkles, User } from 'lucide-react'
 import type { NodoOrganigramma, Persona } from '@/types'
 import { useHRStore } from '@/store/useHRStore'
 import { api } from '@/lib/api'
@@ -71,7 +71,12 @@ export default function RecordDrawer({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [suggestingId, setSuggestingId] = useState(false)
-  const { showToast, refreshAll } = useHRStore()
+  const { showToast, refreshAll, persone } = useHRStore()
+
+  // Persona collegata (solo per nodi con cf_persona)
+  const linkedPersona: Persona | null = type === 'nodo' && record
+    ? (persone.find(p => p.cf === (record as NodoOrganigramma).cf_persona) ?? null)
+    : null
 
   const handleSuggestId = async () => {
     setSuggestingId(true)
@@ -222,6 +227,25 @@ export default function RecordDrawer({
           <FieldRow label="Reports To" value={r?.reports_to as string} />
           <FieldRow label="CF Persona" value={r?.cf_persona as string} />
         </>
+      )}
+
+      {linkedPersona && mode === 'view' && (
+        <div className="mt-4 rounded-lg border border-indigo-800 bg-indigo-950/30 overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-indigo-800/60 bg-indigo-900/20">
+            <User className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
+            <span className="text-xs font-medium text-indigo-300 uppercase tracking-wide">Persona collegata</span>
+          </div>
+          <div className="px-3 py-1">
+            <FieldRow label="Cognome e Nome" value={`${linkedPersona.cognome ?? ''} ${linkedPersona.nome ?? ''}`.trim() || null} />
+            <FieldRow label="Email" value={linkedPersona.email} />
+            <FieldRow label="Qualifica" value={linkedPersona.qualifica} />
+            <FieldRow label="Tipo Contratto" value={linkedPersona.tipo_contratto} />
+            <FieldRow label="Data Assunzione" value={linkedPersona.data_assunzione} />
+            <FieldRow label="Società" value={linkedPersona.societa} />
+            <FieldRow label="Area" value={linkedPersona.area} />
+            <FieldRow label="Sede" value={linkedPersona.sede} />
+          </div>
+        </div>
       )}
 
       <p className={SL}>Organizzativo</p>

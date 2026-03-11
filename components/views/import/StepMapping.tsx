@@ -1,10 +1,14 @@
 'use client'
-import React from 'react'
+import React, { useState } from 'react'
+import { Plus, X } from 'lucide-react'
 import type { EntityTarget } from './StepEntity'
+import type { VarTarget } from '@/types'
 import { useHRStore } from '@/store/useHRStore'
+import { api } from '@/lib/api'
 
 interface StepMappingProps {
   headers: string[]
+  sampleRows: Record<string, unknown>[]
   entity: EntityTarget
   mapping: Record<string, string>
   keyField: string
@@ -132,24 +136,83 @@ export const NATURAL_KEY: Record<EntityTarget, string> = {
   strutture_tns: 'codice',
 }
 
+const ENTITY_VAR_TARGET: Record<EntityTarget, VarTarget> = {
+  nodi_org: 'nodo',
+  persone: 'persona',
+  timesheet: 'timesheet',
+  tns: 'tns',
+  strutture_tns: 'struttura_tns',
+}
+
+const TIPI = ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN', 'SELECT'] as const
+
+function slugify(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+}
+
+function ColumnPreview({ col, sampleRows }: { col: string; sampleRows: Record<string, unknown>[] }) {
+  if (!col) return null
+  const vals = sampleRows
+    .map(r => String(r[col] ?? '').trim())
+    .filter(Boolean)
+    .slice(0, 4)
+  if (!vals.length) return null
+  return (
+    <div className="flex gap-1 flex-wrap mt-0.5">
+      {vals.map((v, i) => (
+        <span key={i} className="text-xs bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded truncate max-w-[120px]" title={v}>{v}</span>
+      ))}
+    </div>
+  )
+}
+
 export default function StepMapping({
-  headers, entity, mapping, keyField, onMappingChange, onKeyFieldChange, onNext, onBack,
+  headers, sampleRows, entity, mapping, keyField, onMappingChange, onKeyFieldChange, onNext, onBack,
 }: StepMappingProps) {
-  const { variabiliDef } = useHRStore()
+  const { variabiliDef, refreshVariabiliDef, showToast } = useHRStore()
   const fields = ENTITY_FIELDS[entity] ?? []
   const naturalKey = NATURAL_KEY[entity]
   const isAlternativeKey = keyField !== naturalKey
+  const entityVarTarget = ENTITY_VAR_TARGET[entity]
 
   const compatibleVars = variabiliDef.filter(v =>
-    (entity === 'nodi_org' && (v.target === 'nodo' || v.target === 'entrambi')) ||
-    (entity === 'persone' && (v.target === 'persona' || v.target === 'entrambi'))
+    v.target === 'tutti' || v.target === entityVarTarget
   )
+
+  // Nuova variabile inline
+  const [showNewVar, setShowNewVar] = useState(false)
+  const [newVarLabel, setNewVarLabel] = useState('')
+  const [newVarTipo, setNewVarTipo] = useState<typeof TIPI[number]>('TEXT')
+  const [newVarCol, setNewVarCol] = useState('')
+  const [creatingVar, setCreatingVar] = useState(false)
 
   const updateMapping = (field: string, header: string) => {
     const next = { ...mapping }
     if (header === '') delete next[field]
     else next[field] = header
     onMappingChange(next)
+  }
+
+  const handleCreateVar = async () => {
+    if (!newVarLabel.trim() || !newVarCol) return
+    setCreatingVar(true)
+    try {
+      const res = await api.variabili.createDefinizione({
+        nome: slugify(newVarLabel),
+        label: newVarLabel.trim(),
+        tipo: newVarTipo,
+        target: entityVarTarget,
+      })
+      if (!res.success || !res.id) { showToast(res.error ?? 'Errore creazione variabile', 'error'); return }
+      await refreshVariabiliDef()
+      updateMapping(`var_${res.id}`, newVarCol)
+      setNewVarLabel(''); setNewVarCol(''); setNewVarTipo('TEXT'); setShowNewVar(false)
+      showToast(`Variabile "${newVarLabel}" creata`, 'success')
+    } catch (e) {
+      showToast(String(e), 'error')
+    } finally {
+      setCreatingVar(false)
+    }
   }
 
   const hasKey = !!mapping[keyField]
@@ -160,19 +223,17 @@ export default function StepMapping({
       {/* Selettore chiave di join */}
       <div className="bg-slate-800 border border-slate-600 rounded-lg p-4">
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Campo chiave per il join</p>
-        <div className="flex items-center gap-3">
-          <select
-            value={keyField}
-            onChange={e => onKeyFieldChange(e.target.value)}
-            className="flex-1 px-2 py-1.5 text-sm bg-slate-900 border border-slate-500 rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            {fields.map(f => (
-              <option key={f.field} value={f.field}>
-                {f.label} {f.field === naturalKey ? '(chiave primaria)' : ''}
-              </option>
-            ))}
-          </select>
-        </div>
+        <select
+          value={keyField}
+          onChange={e => onKeyFieldChange(e.target.value)}
+          className="w-full px-2 py-1.5 text-sm bg-slate-900 border border-slate-500 rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        >
+          {fields.map(f => (
+            <option key={f.field} value={f.field}>
+              {f.label} {f.field === naturalKey ? '(chiave primaria)' : ''}
+            </option>
+          ))}
+        </select>
         {isAlternativeKey && (
           <div className="mt-2 space-y-1">
             <p className="text-xs text-amber-300">
@@ -185,57 +246,123 @@ export default function StepMapping({
         )}
       </div>
 
-      {/* Mapping colonne */}
+      {/* Mapping colonne — campi nativi */}
       <div>
         <h3 className="text-sm font-medium text-slate-300 mb-4">Mappa le colonne del file sui campi del sistema</h3>
-
-        <div className="space-y-2">
+        <div className="space-y-3">
           {fields.map(f => (
-            <div key={f.field} className={`flex items-center gap-3 ${f.field === keyField ? 'opacity-100' : ''}`}>
-              <div className="w-48 flex-shrink-0 flex items-center gap-1">
-                <span className="text-sm text-slate-300">{f.label}</span>
-                {f.field === keyField && (
-                  <span className="text-xs text-amber-400 font-medium">*chiave</span>
-                )}
+            <div key={f.field}>
+              <div className="flex items-center gap-3">
+                <div className="w-48 flex-shrink-0 flex items-center gap-1">
+                  <span className="text-sm text-slate-300">{f.label}</span>
+                  {f.field === keyField && <span className="text-xs text-amber-400 font-medium">*chiave</span>}
+                </div>
+                <select
+                  value={mapping[f.field] ?? ''}
+                  onChange={e => updateMapping(f.field, e.target.value)}
+                  className={[
+                    'flex-1 px-2 py-1.5 text-sm bg-slate-800 border rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500',
+                    f.field === keyField ? 'border-amber-600' : 'border-slate-600'
+                  ].join(' ')}
+                >
+                  <option value="">— non mappare —</option>
+                  {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
               </div>
-              <select
-                value={mapping[f.field] ?? ''}
-                onChange={e => updateMapping(f.field, e.target.value)}
-                className={[
-                  'flex-1 px-2 py-1.5 text-sm bg-slate-800 border rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500',
-                  f.field === keyField ? 'border-amber-600' : 'border-slate-600'
-                ].join(' ')}
-              >
-                <option value="">— non mappare —</option>
-                {headers.map(h => <option key={h} value={h}>{h}</option>)}
-              </select>
+              {mapping[f.field] && <ColumnPreview col={mapping[f.field]} sampleRows={sampleRows} />}
             </div>
           ))}
         </div>
 
-        {compatibleVars.length > 0 && (
-          <>
-            <p className="text-xs text-slate-500 uppercase tracking-wider mt-6 mb-3">Variabili Integrative</p>
-            <div className="space-y-2">
-              {compatibleVars.map(v => (
-                <div key={v.id} className="flex items-center gap-3">
-                  <div className="w-48 flex-shrink-0">
-                    <span className="text-sm text-indigo-300">{v.label}</span>
-                    <span className="ml-1 text-xs text-slate-500">({v.tipo})</span>
-                  </div>
+        {/* Variabili integrative esistenti */}
+        <div className="mt-6">
+          <div className="flex items-center gap-3 mb-3">
+            <p className="text-xs text-slate-500 uppercase tracking-wider">Variabili Integrative</p>
+            <button
+              onClick={() => setShowNewVar(v => !v)}
+              className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              Nuova variabile dal file
+            </button>
+          </div>
+
+          {/* Form nuova variabile inline */}
+          {showNewVar && (
+            <div className="mb-3 p-3 bg-indigo-950/40 border border-indigo-800 rounded-lg space-y-2">
+              <p className="text-xs text-indigo-300 font-medium">Crea una nuova variabile integrativa</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Label (es. Budget Formazione)"
+                  value={newVarLabel}
+                  onChange={e => setNewVarLabel(e.target.value)}
+                  className="flex-1 px-2 py-1.5 text-sm bg-slate-800 border border-slate-600 rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <select
+                  value={newVarTipo}
+                  onChange={e => setNewVarTipo(e.target.value as typeof TIPI[number])}
+                  className="px-2 py-1.5 text-sm bg-slate-800 border border-slate-600 rounded-md text-slate-200 focus:outline-none"
+                >
+                  {TIPI.map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="flex gap-2 items-start">
+                <div className="flex-1">
                   <select
-                    value={mapping[`var_${v.id}`] ?? ''}
-                    onChange={e => updateMapping(`var_${v.id}`, e.target.value)}
-                    className="flex-1 px-2 py-1.5 text-sm bg-slate-800 border border-indigo-800 rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    value={newVarCol}
+                    onChange={e => setNewVarCol(e.target.value)}
+                    className="w-full px-2 py-1.5 text-sm bg-slate-800 border border-slate-600 rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
-                    <option value="">— non mappare —</option>
+                    <option value="">— seleziona colonna del file —</option>
                     {headers.map(h => <option key={h} value={h}>{h}</option>)}
                   </select>
+                  {newVarCol && <ColumnPreview col={newVarCol} sampleRows={sampleRows} />}
+                </div>
+                <div className="flex gap-1 flex-shrink-0">
+                  <button
+                    onClick={handleCreateVar}
+                    disabled={!newVarLabel.trim() || !newVarCol || creatingVar}
+                    className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded transition-colors disabled:opacity-40"
+                  >
+                    {creatingVar ? '…' : 'Crea'}
+                  </button>
+                  <button onClick={() => setShowNewVar(false)} className="p-1.5 text-slate-500 hover:text-slate-300">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {compatibleVars.length > 0 && (
+            <div className="space-y-3">
+              {compatibleVars.map(v => (
+                <div key={v.id}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-48 flex-shrink-0">
+                      <span className="text-sm text-indigo-300">{v.label}</span>
+                      <span className="ml-1 text-xs text-slate-500">({v.tipo})</span>
+                    </div>
+                    <select
+                      value={mapping[`var_${v.id}`] ?? ''}
+                      onChange={e => updateMapping(`var_${v.id}`, e.target.value)}
+                      className="flex-1 px-2 py-1.5 text-sm bg-slate-800 border border-indigo-800 rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    >
+                      <option value="">— non mappare —</option>
+                      {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                  {mapping[`var_${v.id}`] && <ColumnPreview col={mapping[`var_${v.id}`]} sampleRows={sampleRows} />}
                 </div>
               ))}
             </div>
-          </>
-        )}
+          )}
+
+          {compatibleVars.length === 0 && !showNewVar && (
+            <p className="text-xs text-slate-600 italic">Nessuna variabile integrativa definita per questa entità.</p>
+          )}
+        </div>
       </div>
 
       {!hasKey && (

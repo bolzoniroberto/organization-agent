@@ -1,13 +1,20 @@
 'use client'
 import React, { useState } from 'react'
 import { Plus, Pencil, Trash2, X, Check } from 'lucide-react'
-import type { VariabileOrgDefinizione } from '@/types'
+import type { VariabileOrgDefinizione, VarTarget } from '@/types'
 import { useHRStore } from '@/store/useHRStore'
 import { api } from '@/lib/api'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 
 const TIPI = ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN', 'SELECT'] as const
-const TARGETS = ['nodo', 'persona', 'entrambi'] as const
+const TARGETS: { value: string; label: string }[] = [
+  { value: 'nodo',         label: 'Nodi organigramma' },
+  { value: 'persona',      label: 'Persone' },
+  { value: 'timesheet',    label: 'Timesheet' },
+  { value: 'tns',          label: 'Ruoli TNS' },
+  { value: 'struttura_tns',label: 'Strutture TNS' },
+  { value: 'tutti',        label: 'Tutte le entità' },
+]
 
 function slugify(label: string): string {
   return label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
@@ -17,7 +24,7 @@ interface VarFormState {
   nome: string
   label: string
   tipo: typeof TIPI[number]
-  target: typeof TARGETS[number]
+  target: string
   opzioni: string
   descrizione: string
 }
@@ -61,7 +68,7 @@ export default function VariabiliManager() {
         nome: form.nome || slugify(form.label),
         label: form.label,
         tipo: form.tipo,
-        target: form.target,
+        target: form.target as VarTarget,
         opzioni: form.tipo === 'SELECT' && form.opzioni
           ? JSON.stringify(form.opzioni.split(',').map(s => s.trim()).filter(Boolean))
           : null,
@@ -196,9 +203,9 @@ export default function VariabiliManager() {
                 </div>
                 <div>
                   <label className="text-xs text-slate-500 mb-1 block">Target</label>
-                  <select value={form.target} onChange={e => setForm(f => ({ ...f, target: e.target.value as typeof TARGETS[number] }))}
+                  <select value={form.target} onChange={e => setForm(f => ({ ...f, target: e.target.value }))}
                     className="w-full px-2 py-1.5 text-sm bg-slate-800 border border-slate-600 rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
-                    {TARGETS.map(t => <option key={t}>{t}</option>)}
+                    {TARGETS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
               </div>
