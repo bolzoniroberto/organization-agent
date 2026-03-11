@@ -11,6 +11,7 @@ import { Search, X } from 'lucide-react'
 import { useHRStore } from '@/store/useHRStore'
 import type { SupervisioneTimesheet, Persona } from '@/types'
 import OrgNode, { type OrgNodeData } from '@/components/orgchart/OrgNode'
+import NodeContextMenu from '@/components/orgchart/NodeContextMenu'
 import RecordDrawer from '@/components/shared/RecordDrawer'
 import {
   buildTree, analyzeTree, layoutTree, flattenTree, getBoundingBox,
@@ -93,8 +94,9 @@ export default function PersoneCanvas() {
   const compactModeRef = useRef(false)
   const { fitView, setCenter } = useReactFlow()
   const { zoom } = useViewport()
-  const { drillPath, drillRootId, drillInto, drillTo } = useOrgDrill()
+  const { drillPath, drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
   const initializedRef = useRef(false)
+  const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
 
   useEffect(() => {
     if (!initializedRef.current && timesheet.length > 0) {
@@ -103,7 +105,6 @@ export default function PersoneCanvas() {
     }
   }, [timesheet])
 
-  // Ancestor chain + direct children only
   const drilledTimesheet = useMemo(() => {
     if (!drillRootId) return timesheet
     const visibleIds = new Set<string>()
@@ -112,9 +113,16 @@ export default function PersoneCanvas() {
       visibleIds.add(cur)
       cur = timesheet.find(t => t.cf_dipendente === cur)?.cf_supervisore ?? null
     }
-    timesheet.filter(t => t.cf_supervisore === drillRootId).forEach(t => visibleIds.add(t.cf_dipendente))
+    if (drillMode === 'expand') {
+      function collectAll(id: string) {
+        timesheet.filter(t => t.cf_supervisore === id).forEach(t => { visibleIds.add(t.cf_dipendente); collectAll(t.cf_dipendente) })
+      }
+      collectAll(drillRootId)
+    } else {
+      timesheet.filter(t => t.cf_supervisore === drillRootId).forEach(t => visibleIds.add(t.cf_dipendente))
+    }
     return timesheet.filter(t => visibleIds.has(t.cf_dipendente))
-  }, [timesheet, drillRootId])
+  }, [timesheet, drillRootId, drillMode])
 
   // Real child count from full dataset
   const childCountMap = useMemo(() => {
@@ -199,6 +207,15 @@ export default function PersoneCanvas() {
     const p = personaMap.get(cf) ?? null
     setDrawerRecord(p); setDrawerOpen(true); setFocusedNode(cf)
   }, [personaMap])
+
+  const collapseToRoot = useCallback(() => {
+    const allCfs = new Set(timesheet.map(t => t.cf_dipendente))
+    const rootIds = new Set(timesheet.filter(t => !t.cf_supervisore || !allCfs.has(t.cf_supervisore)).map(t => t.cf_dipendente))
+    drillTo(0, () => {
+      setCollapsedSet(new Set(timesheet.filter(t => !rootIds.has(t.cf_dipendente)).map(t => t.cf_dipendente)))
+      setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 50)
+    })
+  }, [timesheet, drillTo, fitView])
 
   const toggleCollapse = useCallback((id: string) => {
     setCollapsedSet(prev => {
@@ -306,22 +323,27 @@ export default function PersoneCanvas() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, setCenter])
 
-  const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+  const handleNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
     setFocusedNode(node.id)
-    const totalChildren = childCountMap.get(node.id) ?? 0
-    if (totalChildren > 0) {
-      const label = getLabel(node.id)
-      drillInto(node.id, label, () => {
-        setCollapsedSet(new Set())
-        setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
-      })
-    } else {
-      const p = personaMap.get(node.id) ?? null
-      setDrawerRecord(p); setDrawerOpen(true)
-    }
+    setContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+  }, [])
+
+  const handleFocusExpand = useCallback((nodeId: string) => {
+    drillInto(nodeId, getLabel(nodeId), 'expand', () => {
+      setCollapsedSet(new Set())
+      setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
+    })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [childCountMap, drillInto, fitView, personaMap])
+  }, [drillInto, fitView, personaMap])
+
+  const handleDrillIn = useCallback((nodeId: string) => {
+    drillInto(nodeId, getLabel(nodeId), 'navigate', () => {
+      setCollapsedSet(new Set())
+      setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drillInto, fitView, personaMap])
 
   const handleNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
@@ -329,7 +351,7 @@ export default function PersoneCanvas() {
   }, [])
 
   const handlePaneClick = useCallback(() => {
-    setFocusedNode(null); setDrawerOpen(false)
+    setFocusedNode(null); setDrawerOpen(false); setContextMenu(null)
   }, [])
 
   const clearFocus = useCallback(() => {
@@ -378,7 +400,7 @@ export default function PersoneCanvas() {
               className="text-sm text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-700 rounded-md transition-colors">
               Espandi tutto
             </button>
-            <button onClick={() => setCollapsedSet(new Set(timesheet.map(t => t.cf_dipendente)))}
+            <button onClick={collapseToRoot}
               className="text-sm text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-700 rounded-md transition-colors">
               Comprimi tutto
             </button>
@@ -474,6 +496,18 @@ export default function PersoneCanvas() {
           </div>
         )}
       </div>
+
+      {contextMenu && (
+        <NodeContextMenu
+          x={contextMenu.x} y={contextMenu.y}
+          label={getLabel(contextMenu.nodeId)}
+          hasChildren={(childCountMap.get(contextMenu.nodeId) ?? 0) > 0}
+          onFocusExpand={() => handleFocusExpand(contextMenu.nodeId)}
+          onDrillIn={() => handleDrillIn(contextMenu.nodeId)}
+          onOpenDetail={() => openDrawer(contextMenu.nodeId)}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   )
 }

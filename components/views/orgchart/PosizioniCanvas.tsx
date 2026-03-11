@@ -12,6 +12,7 @@ import { useHRStore } from '@/store/useHRStore'
 import type { NodoOrganigramma } from '@/types'
 import OrgNode, { type OrgNodeData } from '@/components/orgchart/OrgNode'
 import OrgGroupNode from '@/components/orgchart/OrgGroupNode'
+import NodeContextMenu from '@/components/orgchart/NodeContextMenu'
 import RecordDrawer from '@/components/shared/RecordDrawer'
 import {
   buildTree, analyzeTree, layoutTree, flattenTree, getBoundingBox,
@@ -213,8 +214,9 @@ export default function PosizioniCanvas() {
   const compactModeRef = useRef(false)
   const { fitView, setCenter } = useReactFlow()
   const { zoom } = useViewport()
-  const { drillPath, drillRootId, drillInto, drillTo } = useOrgDrill()
+  const { drillPath, drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
   const initializedRef = useRef(false)
+  const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
 
   useEffect(() => {
     if (!initializedRef.current && filtered.length > 0) {
@@ -234,7 +236,6 @@ export default function PosizioniCanvas() {
     return filtered.filter(n => (n.sede?.toLowerCase() ?? '') === sedeFiltro.toLowerCase())
   }, [filtered, sedeFiltro, viewMode])
 
-  // Ancestor chain + direct children only (no subtree)
   const drilledNodi = useMemo(() => {
     if (!drillRootId) return displayNodi
     const visibleIds = new Set<string>()
@@ -244,10 +245,18 @@ export default function PosizioniCanvas() {
       visibleIds.add(cur)
       cur = filtered.find(n => n.id === cur)?.reports_to ?? null
     }
-    // Direct children only
-    filtered.filter(n => n.reports_to === drillRootId).forEach(n => visibleIds.add(n.id))
+    if (drillMode === 'expand') {
+      // Full subtree
+      function collectAll(id: string) {
+        filtered.filter(n => n.reports_to === id).forEach(n => { visibleIds.add(n.id); collectAll(n.id) })
+      }
+      collectAll(drillRootId)
+    } else {
+      // Direct children only
+      filtered.filter(n => n.reports_to === drillRootId).forEach(n => visibleIds.add(n.id))
+    }
     return filtered.filter(n => visibleIds.has(n.id))
-  }, [filtered, drillRootId, displayNodi])
+  }, [filtered, drillRootId, drillMode, displayNodi])
 
   // Real child count from full dataset (for drill navigation + "has children" badge)
   const childCountMap = useMemo(() => {
@@ -323,6 +332,15 @@ export default function PosizioniCanvas() {
   const openDrawer = useCallback((n: NodoOrganigramma) => {
     setDrawerRecord(n); setDrawerOpen(true); setFocusedNode(n.id)
   }, [])
+
+  const collapseToRoot = useCallback(() => {
+    const allIds = new Set(filtered.map(n => n.id))
+    const rootIds = new Set(filtered.filter(n => !n.reports_to || !allIds.has(n.reports_to)).map(n => n.id))
+    drillTo(0, () => {
+      setCollapsedSet(new Set(filtered.filter(n => !rootIds.has(n.id)).map(n => n.id)))
+      setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 50)
+    })
+  }, [filtered, drillTo, fitView])
 
   const toggleCollapse = useCallback((id: string) => {
     setCollapsedSet(prev => {
@@ -437,21 +455,27 @@ export default function PosizioniCanvas() {
     setTimeout(() => setHighlightedNode(null), 2000)
   }, [nodes, setCenter])
 
-  const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+  const handleNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
     setFocusedNode(node.id)
-    const totalChildren = childCountMap.get(node.id) ?? 0
-    if (totalChildren > 0) {
-      const nodo = filtered.find(n => n.id === node.id)
-      drillInto(node.id, nodo?.nome_uo ?? node.id, () => {
-        setCollapsedSet(new Set())
-        setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
-      })
-    } else {
-      const nodo = filtered.find(n => n.id === node.id)
-      if (nodo) openDrawer(nodo)
-    }
-  }, [childCountMap, filtered, drillInto, fitView, openDrawer])
+    setContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+  }, [])
+
+  const handleFocusExpand = useCallback((nodeId: string) => {
+    const nodo = filtered.find(n => n.id === nodeId)
+    drillInto(nodeId, nodo?.nome_uo ?? nodeId, 'expand', () => {
+      setCollapsedSet(new Set())
+      setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
+    })
+  }, [filtered, drillInto, fitView])
+
+  const handleDrillIn = useCallback((nodeId: string) => {
+    const nodo = filtered.find(n => n.id === nodeId)
+    drillInto(nodeId, nodo?.nome_uo ?? nodeId, 'navigate', () => {
+      setCollapsedSet(new Set())
+      setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
+    })
+  }, [filtered, drillInto, fitView])
 
   const handleNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
@@ -461,6 +485,7 @@ export default function PosizioniCanvas() {
   const handlePaneClick = useCallback(() => {
     setFocusedNode(null)
     setDrawerOpen(false)
+    setContextMenu(null)
   }, [])
 
   const clearFocus = useCallback(() => {
@@ -512,7 +537,7 @@ export default function PosizioniCanvas() {
               className="text-sm text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-700 rounded-md transition-colors">
               Espandi tutto
             </button>
-            <button onClick={() => setCollapsedSet(new Set(filtered.map(n => n.id)))}
+            <button onClick={collapseToRoot}
               className="text-sm text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-700 rounded-md transition-colors">
               Comprimi tutto
             </button>
@@ -639,6 +664,18 @@ export default function PosizioniCanvas() {
           </div>
         )}
       </div>
+
+      {contextMenu && (
+        <NodeContextMenu
+          x={contextMenu.x} y={contextMenu.y}
+          label={filtered.find(n => n.id === contextMenu.nodeId)?.nome_uo ?? contextMenu.nodeId}
+          hasChildren={(childCountMap.get(contextMenu.nodeId) ?? 0) > 0}
+          onFocusExpand={() => handleFocusExpand(contextMenu.nodeId)}
+          onDrillIn={() => handleDrillIn(contextMenu.nodeId)}
+          onOpenDetail={() => { const n = filtered.find(n => n.id === contextMenu.nodeId); if (n) openDrawer(n) }}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   )
 }

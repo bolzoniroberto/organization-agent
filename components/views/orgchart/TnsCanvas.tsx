@@ -12,6 +12,7 @@ import { useHRStore } from '@/store/useHRStore'
 import type { StrutturaTns } from '@/types'
 import OrgNode from '@/components/orgchart/OrgNode'
 import OrgGroupNode from '@/components/orgchart/OrgGroupNode'
+import NodeContextMenu from '@/components/orgchart/NodeContextMenu'
 import RecordDrawer from '@/components/shared/RecordDrawer'
 import {
   buildTree, analyzeTree, layoutTree, flattenTree, getBoundingBox,
@@ -172,8 +173,9 @@ export default function TnsCanvas() {
   const compactModeRef = useRef(false)
   const { fitView, setCenter } = useReactFlow()
   const { zoom } = useViewport()
-  const { drillPath, drillRootId, drillInto, drillTo } = useOrgDrill()
+  const { drillPath, drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
   const initializedRef = useRef(false)
+  const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
 
   useEffect(() => {
     if (!initializedRef.current && filtered.length > 0) {
@@ -182,7 +184,6 @@ export default function TnsCanvas() {
     }
   }, [filtered])
 
-  // Ancestor chain + direct children only
   const drilledFiltered = useMemo(() => {
     if (!drillRootId) return filtered
     const visibleIds = new Set<string>()
@@ -191,9 +192,16 @@ export default function TnsCanvas() {
       visibleIds.add(cur)
       cur = filtered.find(s => s.codice === cur)?.padre ?? null
     }
-    filtered.filter(s => s.padre === drillRootId).forEach(s => visibleIds.add(s.codice))
+    if (drillMode === 'expand') {
+      function collectAll(id: string) {
+        filtered.filter(s => s.padre === id).forEach(s => { visibleIds.add(s.codice); collectAll(s.codice) })
+      }
+      collectAll(drillRootId)
+    } else {
+      filtered.filter(s => s.padre === drillRootId).forEach(s => visibleIds.add(s.codice))
+    }
     return filtered.filter(s => visibleIds.has(s.codice))
-  }, [filtered, drillRootId])
+  }, [filtered, drillRootId, drillMode])
 
   // Real child count from full dataset
   const childCountMap = useMemo(() => {
@@ -277,6 +285,15 @@ export default function TnsCanvas() {
     const s = filtered.find(s => s.codice === codice) ?? null
     setDrawerRecord(s); setDrawerOpen(true); setFocusedNode(codice)
   }, [filtered])
+
+  const collapseToRoot = useCallback(() => {
+    const allCodici = new Set(filtered.map(s => s.codice))
+    const rootIds = new Set(filtered.filter(s => !s.padre || !allCodici.has(s.padre)).map(s => s.codice))
+    drillTo(0, () => {
+      setCollapsedSet(new Set(filtered.filter(s => !rootIds.has(s.codice)).map(s => s.codice)))
+      setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 50)
+    })
+  }, [filtered, drillTo, fitView])
 
   const toggleCollapse = useCallback((id: string) => {
     setCollapsedSet(prev => {
@@ -391,21 +408,27 @@ export default function TnsCanvas() {
     setTimeout(() => setHighlightedNode(null), 2000)
   }, [nodes, setCenter])
 
-  const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+  const handleNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
     setFocusedNode(node.id)
-    const totalChildren = childCountMap.get(node.id) ?? 0
-    if (totalChildren > 0) {
-      const s = filtered.find(s => s.codice === node.id)
-      drillInto(node.id, s?.nome ?? node.id, () => {
-        setCollapsedSet(new Set())
-        setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
-      })
-    } else {
-      const s = filtered.find(s => s.codice === node.id) ?? null
-      setDrawerRecord(s); setDrawerOpen(true)
-    }
-  }, [childCountMap, filtered, drillInto, fitView])
+    setContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+  }, [])
+
+  const handleFocusExpand = useCallback((nodeId: string) => {
+    const s = filtered.find(s => s.codice === nodeId)
+    drillInto(nodeId, s?.nome ?? nodeId, 'expand', () => {
+      setCollapsedSet(new Set())
+      setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
+    })
+  }, [filtered, drillInto, fitView])
+
+  const handleDrillIn = useCallback((nodeId: string) => {
+    const s = filtered.find(s => s.codice === nodeId)
+    drillInto(nodeId, s?.nome ?? nodeId, 'navigate', () => {
+      setCollapsedSet(new Set())
+      setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
+    })
+  }, [filtered, drillInto, fitView])
 
   const handleNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
@@ -413,7 +436,7 @@ export default function TnsCanvas() {
   }, [])
 
   const handlePaneClick = useCallback(() => {
-    setFocusedNode(null); setDrawerOpen(false)
+    setFocusedNode(null); setDrawerOpen(false); setContextMenu(null)
   }, [])
 
   const clearFocus = useCallback(() => {
@@ -465,7 +488,7 @@ export default function TnsCanvas() {
               className="text-sm text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-700 rounded-md transition-colors">
               Espandi tutto
             </button>
-            <button onClick={() => setCollapsedSet(new Set(filtered.map(s => s.codice)))}
+            <button onClick={collapseToRoot}
               className="text-sm text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-700 rounded-md transition-colors">
               Comprimi tutto
             </button>
@@ -599,6 +622,18 @@ export default function TnsCanvas() {
           </div>
         )}
       </div>
+
+      {contextMenu && (
+        <NodeContextMenu
+          x={contextMenu.x} y={contextMenu.y}
+          label={filtered.find(s => s.codice === contextMenu.nodeId)?.nome ?? contextMenu.nodeId}
+          hasChildren={(childCountMap.get(contextMenu.nodeId) ?? 0) > 0}
+          onFocusExpand={() => handleFocusExpand(contextMenu.nodeId)}
+          onDrillIn={() => handleDrillIn(contextMenu.nodeId)}
+          onOpenDetail={() => { const s = filtered.find(s => s.codice === contextMenu.nodeId) ?? null; setDrawerRecord(s); setDrawerOpen(true) }}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   )
 }
