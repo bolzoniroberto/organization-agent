@@ -220,29 +220,44 @@ export default function StepMapping({
   return (
     <div className="flex flex-col gap-6 py-6 px-6 max-w-2xl mx-auto w-full">
 
-      {/* Selettore chiave di join */}
-      <div className="bg-slate-800 border border-slate-600 rounded-lg p-4">
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Campo chiave per il join</p>
-        <select
-          value={keyField}
-          onChange={e => onKeyFieldChange(e.target.value)}
-          className="w-full px-2 py-1.5 text-sm bg-slate-900 border border-slate-500 rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-        >
-          {fields.map(f => (
-            <option key={f.field} value={f.field}>
-              {f.label} {f.field === naturalKey ? '(chiave primaria)' : ''}
-            </option>
-          ))}
-        </select>
-        {isAlternativeKey && (
-          <div className="mt-2 space-y-1">
-            <p className="text-xs text-amber-300">
-              Chiave alternativa: il sistema cercherà record con <code className="font-mono bg-slate-700 px-1 rounded">{keyField}</code> corrispondente.
-            </p>
-            <p className="text-xs text-slate-500">
-              I record non trovati verranno saltati (INSERT non possibile senza la chiave primaria <code className="font-mono">{naturalKey}</code>).
-            </p>
+      {/* Selettore chiave di join + mapping chiave — obbligatorio */}
+      <div className={`border rounded-lg p-4 ${hasKey ? 'bg-slate-800 border-slate-600' : 'bg-amber-950/30 border-amber-600'}`}>
+        <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-3">
+          ⚠ Campo chiave per il join — obbligatorio per procedere
+        </p>
+        <div className="flex gap-3 items-start">
+          <div className="flex-1">
+            <p className="text-xs text-slate-500 mb-1">Quale campo del sistema usare come chiave?</p>
+            <select
+              value={keyField}
+              onChange={e => onKeyFieldChange(e.target.value)}
+              className="w-full px-2 py-1.5 text-sm bg-slate-900 border border-slate-500 rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              {fields.map(f => (
+                <option key={f.field} value={f.field}>
+                  {f.label} {f.field === naturalKey ? '(chiave primaria)' : ''}
+                </option>
+              ))}
+            </select>
           </div>
+          <div className="flex-1">
+            <p className="text-xs text-slate-500 mb-1">Colonna del file corrispondente</p>
+            <select
+              value={mapping[keyField] ?? ''}
+              onChange={e => updateMapping(keyField, e.target.value)}
+              className={`w-full px-2 py-1.5 text-sm bg-slate-900 border rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 ${hasKey ? 'border-green-600' : 'border-amber-600'}`}
+            >
+              <option value="">— seleziona colonna —</option>
+              {headers.map(h => <option key={h} value={h}>{h}</option>)}
+            </select>
+            {mapping[keyField] && <ColumnPreview col={mapping[keyField]} sampleRows={sampleRows} />}
+          </div>
+        </div>
+        {isAlternativeKey && (
+          <p className="text-xs text-amber-300 mt-2">
+            Chiave alternativa: il sistema cercherà record con <code className="font-mono bg-slate-700 px-1 rounded">{keyField}</code> corrispondente.
+            I record non trovati verranno saltati.
+          </p>
         )}
       </div>
 
@@ -365,13 +380,7 @@ export default function StepMapping({
         </div>
       </div>
 
-      {!hasKey && (
-        <p className="text-xs text-amber-400">
-          ⚠️ Mappa il campo chiave <strong>{keyField}</strong> per poter eseguire l&apos;import
-        </p>
-      )}
-
-      <div className="flex gap-3">
+      <div className="flex gap-3 items-center">
         <button onClick={onBack}
           className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors">
           ← Indietro
@@ -380,6 +389,9 @@ export default function StepMapping({
           className="px-6 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors font-medium">
           Anteprima →
         </button>
+        {!hasKey && (
+          <span className="text-xs text-amber-400">Seleziona la colonna chiave in cima per continuare</span>
+        )}
       </div>
     </div>
   )
