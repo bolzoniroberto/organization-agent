@@ -114,6 +114,12 @@ export default function TopMenuBar() {
           <MenuItem label="Arricchimento Puntuale" section="import" view="enrich" onSelect={nav} activeSection={activeSection} activeView={activeView} />
         </MenuButton>
 
+        <MenuButton label="Data Cleaning" active={activeSection === 'data-cleaning'}>
+          <MenuItem label="Proposte" section="data-cleaning" view="dc-duplicati" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="Modifica Massiva" section="data-cleaning" view="dc-bulk-edit" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="Unisci Record" section="data-cleaning" view="dc-merge" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+        </MenuButton>
+
         <button
           onClick={() => { setActiveSection('storico'); setActiveView('nodi') }}
           className={[

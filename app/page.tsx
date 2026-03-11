@@ -6,6 +6,7 @@ import AnagraficaView from '@/components/views/AnagraficaView'
 import ImportBulkView from '@/components/views/ImportBulkView'
 import ImportEnrichView from '@/components/views/ImportEnrichView'
 import StoricoView from '@/components/views/StoricoView'
+import DataCleaningView from '@/components/views/DataCleaningView'
 import { useHRStore } from '@/store/useHRStore'
 import type { ActiveSection } from '@/types'
 
@@ -35,6 +36,7 @@ export default function Home() {
       {mounted.has('masterdata') && <div className={vis('masterdata')}><AnagraficaView /></div>}
       {mounted.has('import') && <div className={vis('import')}><ImportView /></div>}
       {mounted.has('storico') && <div className={vis('storico')}><StoricoView /></div>}
+      {mounted.has('data-cleaning') && <div className={vis('data-cleaning')}><DataCleaningView /></div>}
     </AppShell>
   )
 }

@@ -1,6 +1,6 @@
 import type {
   NodoOrganigramma, Persona, SupervisioneTimesheet, RuoloTns, StrutturaTns,
-  ChangeLogEntry, ImportReport, VariabileOrgDefinizione, VariabileOrgValore
+  ChangeLogEntry, ImportReport, VariabileOrgDefinizione, VariabileOrgValore, CleaningProposal
 } from '../types'
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? ''
@@ -202,6 +202,35 @@ export const api = {
 
     delete: (codice: string): Promise<{ success: boolean; error?: string }> =>
       fetch(u(`/api/strutture-tns/${encodeURIComponent(codice)}`), { method: 'DELETE' }).then(r => json(r)),
+  },
+
+  dataCleaning: {
+    proposals: (): Promise<CleaningProposal[]> =>
+      fetch(u('/api/data-cleaning/proposals')).then(r => json(r)),
+
+    bulkUpdate: (body: {
+      entityType: 'persone' | 'nodi' | 'strutture-tns'
+      ids: string[]
+      field: string
+      value: string | null
+    }): Promise<{ updated: number; errors: string[] }> =>
+      fetch(u('/api/data-cleaning/bulk-update'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(r => json(r)),
+
+    merge: (body: {
+      entityType: 'persone' | 'nodi' | 'strutture-tns'
+      survivorId: string
+      victimId: string
+      overrideFields?: Record<string, unknown>
+    }): Promise<{ success: boolean; error?: string }> =>
+      fetch(u('/api/data-cleaning/merge'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(r => json(r)),
   },
 
   import: {

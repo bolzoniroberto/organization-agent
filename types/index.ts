@@ -168,7 +168,17 @@ export interface StrutturaTns {
   updated_at?: string
 }
 
-export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico'
-export type ActiveView = 'posizioni' | 'persone-ts' | 'tns' | 'accordion' | 'nodi' | 'persone' | 'ruoli-tns' | 'strutture-tns' | 'variabili' | 'bulk' | 'enrich'
+export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico' | 'data-cleaning'
+export type ActiveView = 'posizioni' | 'persone-ts' | 'tns' | 'accordion' | 'nodi' | 'persone' | 'ruoli-tns' | 'strutture-tns' | 'variabili' | 'bulk' | 'enrich' | 'dc-duplicati' | 'dc-bulk-edit' | 'dc-merge'
+
+export interface CleaningProposal {
+  id: string
+  tipo: string
+  label: string
+  severity: 'high' | 'medium' | 'low'
+  entityType: string
+  records: Record<string, unknown>[]
+  suggestedAction: 'merge' | 'delete' | 'update' | 'review'
+}
 export type OrgSubTab = 'posizioni' | 'persone' | 'tns' | 'accordion'
 export type TipoNodo = 'STRUTTURA' | 'PERSONA' | 'ANOMALIA'
