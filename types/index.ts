@@ -170,7 +170,7 @@ export interface StrutturaTns {
   updated_at?: string
 }
 
-export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico' | 'data-cleaning'
+export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico' | 'data-cleaning' | 'db-live'
 export type ActiveView = 'posizioni' | 'persone-ts' | 'tns' | 'accordion' | 'nodi' | 'persone' | 'ruoli-tns' | 'strutture-tns' | 'variabili' | 'bulk' | 'enrich' | 'dc-duplicati' | 'dc-bulk-edit' | 'dc-merge'
 
 export interface CleaningProposal {

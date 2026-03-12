@@ -131,6 +131,18 @@ export default function TopMenuBar() {
         >
           Storico
         </button>
+
+        <button
+          onClick={() => { setActiveSection('db-live'); setActiveView('nodi') }}
+          className={[
+            'px-3 py-1.5 text-sm rounded-md transition-colors font-mono',
+            activeSection === 'db-live'
+              ? 'bg-slate-700 text-green-300'
+              : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+          ].join(' ')}
+        >
+          DB
+        </button>
       </nav>
 
       <div className="flex-1" />
