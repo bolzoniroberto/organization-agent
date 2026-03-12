@@ -250,7 +250,7 @@ export const api = {
       mapping: Record<string, string>
       sheetName: string
       keyField?: string
-    }): Promise<{ toInsert: number; toUpdate: number; toSkip: number; anomalie: unknown[]; diff: unknown[] }> => {
+    }): Promise<{ toInsert: number; toUpdate: number; toSkip: number; toVarUpdate: number; anomalie: unknown[]; diff: unknown[] }> => {
       const fd = new FormData()
       fd.append('file', options.file)
       fd.append('entity', options.entity)

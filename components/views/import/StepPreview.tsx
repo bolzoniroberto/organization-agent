@@ -6,6 +6,7 @@ interface DryRunResult {
   toInsert: number
   toUpdate: number
   toSkip: number
+  toVarUpdate: number
   anomalie: unknown[]
   diff: unknown[]
 }
@@ -39,15 +40,21 @@ export default function StepPreview({ result, loading, onRefresh, onExecute, onB
 
       {result && !loading && (
         <>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="bg-green-900/20 border border-green-700 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-green-300">{result.toInsert}</div>
               <div className="text-xs text-green-500 mt-1">Da inserire</div>
             </div>
             <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-blue-300">{result.toUpdate}</div>
-              <div className="text-xs text-blue-500 mt-1">Da aggiornare</div>
+              <div className="text-xs text-blue-500 mt-1">Campi nativi da aggiornare</div>
             </div>
+            {result.toVarUpdate > 0 && (
+              <div className="bg-indigo-900/20 border border-indigo-700 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold text-indigo-300">{result.toVarUpdate}</div>
+                <div className="text-xs text-indigo-400 mt-1">Variabili integrative da salvare</div>
+              </div>
+            )}
             <div className="bg-slate-800 border border-slate-600 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-slate-400">{result.toSkip}</div>
               <div className="text-xs text-slate-500 mt-1">Invariati</div>
@@ -71,7 +78,7 @@ export default function StepPreview({ result, loading, onRefresh, onExecute, onB
             </div>
           )}
 
-          {result.toInsert === 0 && result.toUpdate === 0 && (
+          {result.toInsert === 0 && result.toUpdate === 0 && result.toVarUpdate === 0 && (
             <div className="flex items-center gap-2 text-slate-400 text-sm">
               <CheckCircle className="w-4 h-4 text-green-400" />
               Nessuna modifica da applicare
@@ -86,7 +93,7 @@ export default function StepPreview({ result, loading, onRefresh, onExecute, onB
         </button>
         <button
           onClick={onExecute}
-          disabled={executing || loading || !result || (result.toInsert === 0 && result.toUpdate === 0)}
+          disabled={executing || loading || !result || (result.toInsert === 0 && result.toUpdate === 0 && result.toVarUpdate === 0)}
           className="flex items-center gap-2 px-6 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-40 transition-colors font-medium"
         >
           {executing && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}

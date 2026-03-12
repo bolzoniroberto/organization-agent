@@ -20,6 +20,7 @@ export interface DryRunResult {
   toInsert: number
   toUpdate: number
   toSkip: number
+  toVarUpdate: number
   anomalie: Array<{ tipo: string; dettaglio: string; riga?: number }>
   diff: Array<{ id: string; field: string; oldVal: string; newVal: string }>
 }
@@ -104,7 +105,7 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
   const anomalie = detectAnomalies(rows, entity, mapping, joinKey)
 
   const report: ImportReport = { inserted: 0, updated: 0, skipped: 0, errors: [], anomalie: anomalie.length }
-  const dryResult: DryRunResult = { toInsert: 0, toUpdate: 0, toSkip: 0, anomalie, diff: [] }
+  const dryResult: DryRunResult = { toInsert: 0, toUpdate: 0, toSkip: 0, toVarUpdate: 0, anomalie, diff: [] }
 
   // Collect var mappings
   const varMappings: Record<number, string> = {}
@@ -143,7 +144,7 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
 
       if (dryRun) {
         if (!existing && !isNaturalKey) {
-          dryResult.toSkip++ // non possiamo inserire senza la PK naturale
+          dryResult.toSkip++
           continue
         }
         if (!existing) dryResult.toInsert++
@@ -160,6 +161,13 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
           }
           if (hasChange) dryResult.toUpdate++
           else dryResult.toSkip++
+        }
+        // conta anche le variabili che verranno aggiornate
+        const dryEntitaId = existing ? String(existing[naturalKey]) : (isNaturalKey ? joinValue : null)
+        if (dryEntitaId) {
+          for (const [, col] of Object.entries(varMappings)) {
+            if (toStr(row[col]) !== null) dryResult.toVarUpdate++
+          }
         }
         continue
       }
@@ -294,6 +302,7 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
         if (entitaId) {
           for (const [varId, col] of Object.entries(varMappings)) {
             const valore = toStr(row[col])
+            if (valore === null) continue  // non salvare valori vuoti/mancanti
             if (!existing && mode === 'INTEGRATIVA') continue
             if (mode === 'INTEGRATIVA') {
               const curr = d.prepare('SELECT valore FROM variabili_org_valori WHERE entita_tipo = ? AND entita_id = ? AND var_id = ?')

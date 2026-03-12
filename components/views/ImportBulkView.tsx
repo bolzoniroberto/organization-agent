@@ -20,7 +20,7 @@ export default function ImportBulkView() {
   const [sheetName, setSheetName] = useState('')
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [keyField, setKeyField] = useState<string>('')
-  const [dryRunResult, setDryRunResult] = useState<null | { toInsert: number; toUpdate: number; toSkip: number; anomalie: unknown[]; diff: unknown[] }>(null)
+  const [dryRunResult, setDryRunResult] = useState<null | { toInsert: number; toUpdate: number; toSkip: number; toVarUpdate: number; anomalie: unknown[]; diff: unknown[] }>(null)
   const [dryRunLoading, setDryRunLoading] = useState(false)
   const [executing, setExecuting] = useState(false)
   const [importDone, setImportDone] = useState<{ inserted: number; updated: number; errors: string[] } | null>(null)
