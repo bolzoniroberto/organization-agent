@@ -115,6 +115,46 @@ export async function GET() {
       })
     }
 
+    // PERSONA_TNS_ORFANA: ha codice_tns ma padre_tns null → non è assegnata a nessuna struttura
+    const personeOrfaneTns = d.prepare(`
+      SELECT * FROM persone
+      WHERE deleted_at IS NULL
+        AND codice_tns IS NOT NULL AND codice_tns != ''
+        AND (padre_tns IS NULL OR padre_tns = '')
+    `).all() as Record<string, unknown>[]
+    for (const r of personeOrfaneTns) {
+      proposals.push({
+        id: hash('PERSONA_TNS_ORFANA', String(r.cf)),
+        tipo: 'PERSONA_TNS_ORFANA',
+        label: `Persona TNS orfana: ${r.cognome ?? ''} ${r.nome ?? ''} (${r.cf}) — nessuna struttura assegnata`,
+        severity: 'medium',
+        entityType: 'persona',
+        records: [r],
+        suggestedAction: 'update',
+      })
+    }
+
+    // PERSONA_TNS_STRUTTURA_INVALIDA: padre_tns valorizzato ma struttura non esiste o è eliminata
+    const personeStrutturaInvalida = d.prepare(`
+      SELECT p.* FROM persone p
+      WHERE p.deleted_at IS NULL
+        AND p.padre_tns IS NOT NULL AND p.padre_tns != ''
+        AND NOT EXISTS (
+          SELECT 1 FROM strutture_tns s WHERE s.codice = p.padre_tns AND s.deleted_at IS NULL
+        )
+    `).all() as Record<string, unknown>[]
+    for (const r of personeStrutturaInvalida) {
+      proposals.push({
+        id: hash('PERSONA_TNS_STRUTTURA_INVALIDA', String(r.cf)),
+        tipo: 'PERSONA_TNS_STRUTTURA_INVALIDA',
+        label: `Persona TNS con struttura invalida: ${r.cognome ?? ''} ${r.nome ?? ''} (${r.cf}) → padre_tns "${r.padre_tns}" non esiste`,
+        severity: 'high',
+        entityType: 'persona',
+        records: [r],
+        suggestedAction: 'update',
+      })
+    }
+
     // NOME_SIMILE: cognome+nome quasi identici tra persone diverse (Levenshtein ≤ 2)
     const tuttePersone = d.prepare(`SELECT cf, cognome, nome FROM persone WHERE deleted_at IS NULL`).all() as { cf: string; cognome: string | null; nome: string | null }[]
     const seen = new Set<string>()

@@ -61,7 +61,8 @@ function Table({ cols, rows }: { cols: { key: string; label: string; mono?: bool
 }
 
 export default function DbLiveView() {
-  const { nodi, persone, tns, struttureTns, refreshAll } = useHRStore()
+  const { nodi, persone, struttureTns, refreshAll } = useHRStore()
+  const tns = persone.filter(p => p.codice_tns != null)
   const [s1, setS1] = useState('')
   const [s2, setS2] = useState('')
   const [s3, setS3] = useState('')
@@ -86,7 +87,7 @@ export default function DbLiveView() {
 
   const fTns = useMemo(() => {
     const q = s3.toLowerCase()
-    return tns.filter(t => !q || [t.cf_persona, t.codice_tns, t.titolare_tns, t.sede_tns].some(v => v?.toLowerCase().includes(q)))
+    return tns.filter(t => !q || [t.cf, t.codice_tns, t.titolare_tns, t.sede_tns].some(v => v?.toLowerCase().includes(q)))
   }, [tns, s3])
 
   const fStrutt = useMemo(() => {
@@ -142,7 +143,7 @@ export default function DbLiveView() {
         <Panel title="Ruoli TNS" count={fTns.length} color="text-green-300" search={s3} onSearch={setS3}>
           <Table
             cols={[
-              { key: 'cf_persona', label: 'CF', mono: true },
+              { key: 'cf', label: 'CF', mono: true },
               { key: 'codice_tns', label: 'Codice', mono: true },
               { key: 'padre_tns', label: 'Padre', mono: true },
               { key: 'livello_tns', label: 'Liv.' },

@@ -14,6 +14,8 @@ export async function POST(req: NextRequest) {
     const sheetName = (formData.get('sheetName') as string) ?? undefined
     const keyField = (formData.get('keyField') as string) ?? undefined
 
+    console.log('[dry-run] entity=%s mode=%s keyField=%s mapping=%s', entity, mode, keyField, JSON.stringify(mapping))
+
     const result = importXls({
       buffer,
       entity: entity as 'nodi_org' | 'persone' | 'timesheet' | 'tns' | 'strutture_tns',

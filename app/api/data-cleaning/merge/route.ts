@@ -58,15 +58,19 @@ export async function POST(req: NextRequest) {
       d.prepare(`UPDATE supervisioni_timesheet SET cf_supervisore = ? WHERE cf_supervisore = ?`).run(survivorId, victimId)
       writeChangeLog('timesheet', victimId, null, 'UPDATE', 'cf_dipendente', victimId, survivorId)
 
-      // Aggiorna ruoli_tns — TNS è univoco per CF:
-      // se il survivor non ha già un ruolo_tns, sposta il victim; altrimenti cancella il victim
-      const survivorTns = d.prepare(`SELECT cf_persona FROM ruoli_tns WHERE cf_persona = ?`).get(survivorId)
-      if (!survivorTns) {
-        d.prepare(`UPDATE ruoli_tns SET cf_persona = ? WHERE cf_persona = ?`).run(survivorId, victimId)
-        writeChangeLog('ruolo_tns', victimId, null, 'UPDATE', 'cf_persona', victimId, survivorId)
-      } else {
-        d.prepare(`DELETE FROM ruoli_tns WHERE cf_persona = ?`).run(victimId)
-        writeChangeLog('ruolo_tns', victimId, null, 'DELETE', null, null, `victim tns removed on merge into ${survivorId}`)
+      // Merge TNS: i campi TNS ora sono in persone
+      // Se il survivor non ha già codice_tns, copia i campi TNS dal victim
+      const survivorPersona = d.prepare(`SELECT codice_tns FROM persone WHERE cf = ?`).get(survivorId) as { codice_tns: string | null } | undefined
+      const victimPersona = d.prepare(`SELECT * FROM persone WHERE cf = ?`).get(victimId) as Record<string, unknown> | undefined
+      if (!survivorPersona?.codice_tns && victimPersona?.codice_tns) {
+        const TNS_FIELDS = ['codice_tns','padre_tns','livello_tns','titolare_tns','tipo_approvatore','codice_approvatore',
+          'viaggiatore','approvatore','cassiere','segretario','controllore','amministrazione','visualizzatore',
+          'escluso_tns','sede_tns','cdc_tns','ruoli_oltrv','ruoli_tns_desc','segr_redaz','segreteria_red_asst',
+          'segretario_asst','controllore_asst','ruoli_afc','ruoli_hr','altri_ruoli','gruppo_sind']
+        const sets = TNS_FIELDS.map(f => `${f} = ?`).join(', ')
+        const vals = TNS_FIELDS.map(f => victimPersona[f] ?? null)
+        d.prepare(`UPDATE persone SET ${sets} WHERE cf = ?`).run(...vals, survivorId)
+        writeChangeLog('persona', victimId, null, 'UPDATE', 'codice_tns (merged)', String(victimPersona.codice_tns ?? ''), survivorId)
       }
 
       // Soft delete victim

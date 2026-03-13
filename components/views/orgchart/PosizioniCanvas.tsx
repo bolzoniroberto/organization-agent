@@ -4,11 +4,12 @@ import {
   ReactFlow, Background, Controls, MiniMap,
   type Node, type Edge, type EdgeProps,
   BackgroundVariant, useReactFlow, useViewport,
-  BaseEdge, getSmoothStepPath, Position
+  BaseEdge, getSmoothStepPath, Position,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Search, X } from 'lucide-react'
 import { useHRStore } from '@/store/useHRStore'
+import { api } from '@/lib/api'
 import type { NodoOrganigramma, Persona } from '@/types'
 import OrgNode, { type OrgNodeData } from '@/components/orgchart/OrgNode'
 import OrgGroupNode from '@/components/orgchart/OrgGroupNode'
@@ -254,6 +255,14 @@ export default function PosizioniCanvas() {
   const { drillPath, drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
   const initializedRef = useRef(false)
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
+  const [dragEditMode, setDragEditMode] = useState(false)
+  const [dragTargetId, setDragTargetId] = useState<string | null>(null)
+  const [dragResetKey, setDragResetKey] = useState(0)
+  const [pendingReparent, setPendingReparent] = useState<{
+    nodeId: string; nodeLabel: string; newParentId: string; newParentLabel: string
+  } | null>(null)
+  const [reparenting, setReparenting] = useState(false)
+  const { showToast } = useHRStore()
 
   useEffect(() => {
     if (!initializedRef.current && filtered.length > 0) {
@@ -366,6 +375,60 @@ export default function PosizioniCanvas() {
   // When drill is active all visible nodes are already contextual — no dimming
   const activePath = drillRootId ? null : (focusPath ?? hoverPath)
 
+  // ── Drag-to-reparent ───────────────────────────────────────────────────────
+  const nodesRef = useRef<Node[]>([])
+
+  const isDescendant = useCallback((ancestorId: string, checkId: string): boolean => {
+    const children = filtered.filter(n => n.reports_to === ancestorId)
+    return children.some(c => c.id === checkId || isDescendant(c.id, checkId))
+  }, [filtered])
+
+  const handleNodeDrag = useCallback((_: React.MouseEvent, draggedNode: Node) => {
+    const { x, y } = draggedNode.position
+    const W = compactMode ? 160 : 220
+    const H = compactMode ? 50 : 70
+    const cx = x + W / 2, cy = y + H / 2
+    const currentParent = filtered.find(n => n.id === draggedNode.id)?.reports_to
+    const target = nodesRef.current.find(n => {
+      if (n.id === draggedNode.id || n.type !== 'orgNode') return false
+      if (n.id === currentParent) return false
+      if (isDescendant(draggedNode.id, n.id)) return false
+      const nx = n.position.x, ny = n.position.y
+      return cx >= nx && cx <= nx + W && cy >= ny && cy <= ny + H
+    })
+    setDragTargetId(target?.id ?? null)
+  }, [filtered, compactMode, isDescendant])
+
+  const handleNodeDragStop = useCallback((_: React.MouseEvent, draggedNode: Node) => {
+    if (dragTargetId) {
+      const draggedNodo = filtered.find(n => n.id === draggedNode.id)
+      const targetNodo = filtered.find(n => n.id === dragTargetId)
+      setPendingReparent({
+        nodeId: draggedNode.id,
+        nodeLabel: draggedNodo?.nome_uo ?? draggedNode.id,
+        newParentId: dragTargetId,
+        newParentLabel: targetNodo?.nome_uo ?? dragTargetId,
+      })
+    }
+    setDragTargetId(null)
+    setDragResetKey(k => k + 1)
+  }, [dragTargetId, filtered])
+
+  const handleConfirmReparent = useCallback(async () => {
+    if (!pendingReparent) return
+    setReparenting(true)
+    try {
+      await api.org.update(pendingReparent.nodeId, { reports_to: pendingReparent.newParentId })
+      showToast(`${pendingReparent.nodeLabel} → ${pendingReparent.newParentLabel}`, 'success')
+      await refreshAll()
+    } catch (e) {
+      showToast(String(e), 'error')
+    } finally {
+      setReparenting(false)
+      setPendingReparent(null)
+    }
+  }, [pendingReparent, showToast, refreshAll])
+
   const openDrawer = useCallback((n: NodoOrganigramma) => {
     setDrawerRecord(n); setDrawerOpen(true); setFocusedNode(n.id)
   }, [])
@@ -459,7 +522,18 @@ export default function PosizioniCanvas() {
 
   useEffect(() => {
     prevVisibleIdsRef.current = new Set(nodes.filter(n => n.type === 'orgNode').map(n => n.id))
+    nodesRef.current = nodes
   }, [nodes])
+
+  // Apply drag-target highlight; dragResetKey forces position reset after drag
+  const derivedNodes = useMemo(() => {
+    if (!dragTargetId && dragResetKey === 0) return nodes
+    return nodes.map(n => n.id === dragTargetId
+      ? { ...n, className: 'ring-2 ring-green-400 rounded-lg' }
+      : n
+    )
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, dragTargetId, dragResetKey])
 
   useEffect(() => {
     if (nodes.length > 0) setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 100)
@@ -609,6 +683,22 @@ export default function PosizioniCanvas() {
           </div>
         )}
 
+        {/* Drag edit mode toggle */}
+        {viewMode === 'tree' && (
+          <button
+            onClick={() => { setDragEditMode(m => !m); setDragTargetId(null) }}
+            className={[
+              'px-2.5 py-1.5 text-xs rounded-md border transition-colors',
+              dragEditMode
+                ? 'bg-amber-900/50 border-amber-600 text-amber-300 font-medium'
+                : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+            ].join(' ')}
+            title="Modalità modifica riporti: trascina un nodo su un altro per cambiare il suo responsabile"
+          >
+            {dragEditMode ? '✎ Modifica attiva' : '✎ Modifica riporti'}
+          </button>
+        )}
+
         <div className="flex-1" />
 
         {/* Focus indicator */}
@@ -692,7 +782,7 @@ export default function PosizioniCanvas() {
       <div className="flex flex-1 min-h-0">
         <div className="flex-1 min-w-0 relative">
           <ReactFlow
-            nodes={nodes}
+            nodes={derivedNodes}
             edges={edges}
             nodeTypes={NODE_TYPES}
             edgeTypes={EDGE_TYPES}
@@ -701,13 +791,16 @@ export default function PosizioniCanvas() {
             minZoom={0.1}
             maxZoom={2}
             proOptions={{ hideAttribution: true }}
-            onNodeClick={handleNodeClick}
+            nodesDraggable={dragEditMode}
+            onNodeClick={dragEditMode ? undefined : handleNodeClick}
             onNodeContextMenu={handleNodeContextMenu}
             onNodeDoubleClick={handleNodeDoubleClick}
             onPaneClick={handlePaneClick}
             onNodeMouseEnter={(_, node) => { if (node.type === 'orgNode') setHoveredNode(node.id) }}
             onNodeMouseLeave={() => setHoveredNode(null)}
-            style={{ background: '#0f172a' }}
+            onNodeDrag={dragEditMode ? handleNodeDrag : undefined}
+            onNodeDragStop={dragEditMode ? handleNodeDragStop : undefined}
+            style={{ background: '#0f172a', cursor: dragEditMode ? 'grab' : undefined }}
           >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#334155" />
             <Controls position="bottom-right" className="!shadow-none !border !border-slate-700 !rounded-lg overflow-hidden" />
@@ -739,6 +832,45 @@ export default function PosizioniCanvas() {
           onOpenDetail={() => { const n = filtered.find(n => n.id === contextMenu.nodeId); if (n) openDrawer(n) }}
           onClose={() => setContextMenu(null)}
         />
+      )}
+
+      {/* Reparent confirmation modal */}
+      {pendingReparent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-96 p-6 flex flex-col gap-4">
+            <h3 className="text-sm font-semibold text-slate-200">Modifica riporto</h3>
+            <p className="text-sm text-slate-400">
+              Sposta <span className="text-slate-100 font-medium">{pendingReparent.nodeLabel}</span> sotto{' '}
+              <span className="text-green-300 font-medium">{pendingReparent.newParentLabel}</span>?
+            </p>
+            <p className="text-xs text-slate-500">
+              Il campo <code className="font-mono bg-slate-800 px-1 rounded">reports_to</code> verrà aggiornato nel database.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setPendingReparent(null)}
+                disabled={reparenting}
+                className="px-4 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleConfirmReparent}
+                disabled={reparenting}
+                className="px-4 py-1.5 text-sm bg-green-700 hover:bg-green-600 text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                {reparenting ? 'Aggiorno…' : 'Conferma'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drag mode banner */}
+      {dragEditMode && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 px-4 py-2 bg-amber-900/80 border border-amber-600 rounded-full text-xs text-amber-200 pointer-events-none shadow-lg">
+          Trascina un nodo sopra un altro per cambiarne il responsabile
+        </div>
       )}
     </div>
   )

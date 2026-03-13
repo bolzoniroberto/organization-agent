@@ -9,11 +9,11 @@ import {
 import '@xyflow/react/dist/style.css'
 import { Search, X } from 'lucide-react'
 import { useHRStore } from '@/store/useHRStore'
-import type { StrutturaTns } from '@/types'
+import { api } from '@/lib/api'
+import type { Persona, StrutturaTns } from '@/types'
 import OrgNode from '@/components/orgchart/OrgNode'
 import OrgGroupNode from '@/components/orgchart/OrgGroupNode'
 import NodeContextMenu from '@/components/orgchart/NodeContextMenu'
-import RecordDrawer from '@/components/shared/RecordDrawer'
 import {
   buildTree, analyzeTree, layoutTree, flattenTree, getBoundingBox,
   findWidestHorizontalSubtree, type TreeNode, type LayoutConfig
@@ -32,6 +32,24 @@ const SEDE_INNER_COLS = 4
 type ColorMode = 'none' | 'sede_tns' | 'livello'
 type ColorScheme = { border: string; bg: string }
 type NodeBox = { x: number; y: number; w: number; h: number }
+
+const NODE_FIELD_OPTIONS = [
+  { value: '', label: '— nessuno —' },
+  { value: 'nome', label: 'Nome' },
+  { value: 'codice', label: 'Codice' },
+  { value: 'livello', label: 'Livello' },
+  { value: 'tipo', label: 'Tipo' },
+  { value: 'sede_tns', label: 'Sede TNS' },
+  { value: 'titolare', label: 'Titolare' },
+  { value: 'cf_titolare', label: 'CF Titolare' },
+  { value: 'cdc', label: 'CdC' },
+  { value: 'descrizione', label: 'Descrizione' },
+]
+
+function resolveField(s: StrutturaTns, field: string): string | null | undefined {
+  if (!field) return null
+  return (s as unknown as Record<string, unknown>)[field] as string | null
+}
 
 function buildColorMap(items: StrutturaTns[], mode: ColorMode): Map<string, ColorScheme> {
   if (mode === 'none') return new Map()
@@ -156,8 +174,9 @@ function buildSedeLayout(
 }
 
 export default function TnsCanvas() {
-  const { struttureTns, refreshAll } = useHRStore()
-  const filtered = useMemo(() => struttureTns.filter(s => s.attivo !== 0), [struttureTns])
+  const { struttureTns, persone, refreshAll, showToast } = useHRStore()
+  const filtered = useMemo(() => struttureTns.filter(s => s.attivo !== 0 && !s.deleted_at), [struttureTns])
+  const tns = useMemo(() => persone.filter((p): p is Persona & { codice_tns: string } => p.codice_tns != null), [persone])
 
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set())
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -166,6 +185,7 @@ export default function TnsCanvas() {
   const [searchResults, setSearchResults] = useState<StrutturaTns[]>([])
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null)
   const [colorMode, setColorMode] = useState<ColorMode>('none')
+  const [nodeFields, setNodeFields] = useState<[string, string, string]>(['nome', 'codice', 'livello'])
   const [viewMode, setViewMode] = useState<'tree' | 'sede'>('tree')
   const [focusedNode, setFocusedNode] = useState<string | null>(null)
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
@@ -176,6 +196,14 @@ export default function TnsCanvas() {
   const { drillPath, drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
   const initializedRef = useRef(false)
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
+  const [dragEditMode, setDragEditMode] = useState(false)
+  const [dragTargetId, setDragTargetId] = useState<string | null>(null)
+  const [dragResetKey, setDragResetKey] = useState(0)
+  const [pendingReparent, setPendingReparent] = useState<{
+    nodeId: string; nodeLabel: string; newParentId: string; newParentLabel: string
+  } | null>(null)
+  const [reparenting, setReparenting] = useState(false)
+  const nodesRef = useRef<Node[]>([])
 
   useEffect(() => {
     if (!initializedRef.current && filtered.length > 0) {
@@ -203,7 +231,6 @@ export default function TnsCanvas() {
     return filtered.filter(s => visibleIds.has(s.codice))
   }, [filtered, drillRootId, drillMode])
 
-  // Real child count from full dataset
   const childCountMap = useMemo(() => {
     const map = new Map<string, number>()
     filtered.forEach(s => { if (s.padre) map.set(s.padre, (map.get(s.padre) ?? 0) + 1) })
@@ -253,13 +280,29 @@ export default function TnsCanvas() {
   const colorMap = useMemo(() => buildColorMap(filtered, colorMode), [filtered, colorMode])
 
   const semanticStatusMap = useMemo(() => {
-    const padri = new Set(filtered.map(s => s.padre).filter(Boolean))
+    const directCount = new Map<string, number>()
+    tns.forEach(p => { directCount.set(p.codice_tns, (directCount.get(p.codice_tns) ?? 0) + 1) })
+    const children = new Map<string, string[]>()
+    filtered.forEach(s => {
+      if (s.padre) { if (!children.has(s.padre)) children.set(s.padre, []); children.get(s.padre)!.push(s.codice) }
+    })
+    const subtreeCount = new Map<string, number>()
+    function dfs(id: string): number {
+      if (subtreeCount.has(id)) return subtreeCount.get(id)!
+      const kids = children.get(id) ?? []
+      const total = (directCount.get(id) ?? 0) + kids.reduce((sum, c) => sum + dfs(c), 0)
+      subtreeCount.set(id, total)
+      return total
+    }
+    filtered.forEach(s => dfs(s.codice))
     const out = new Map<string, 'active' | 'indirect' | 'empty'>()
     filtered.forEach(s => {
-      out.set(s.codice, padri.has(s.codice) ? 'active' : 'empty')
+      const direct = directCount.get(s.codice) ?? 0
+      const subtree = subtreeCount.get(s.codice) ?? 0
+      out.set(s.codice, direct > 0 ? 'active' : subtree > 0 ? 'indirect' : 'empty')
     })
     return out
-  }, [filtered])
+  }, [filtered, tns])
 
   const focusPath = useMemo(() => {
     if (!focusedNode) return null
@@ -280,6 +323,62 @@ export default function TnsCanvas() {
   }, [hoveredNode, filtered])
 
   const activePath = drillRootId ? null : (focusPath ?? hoverPath)
+
+  // ── Drag-to-reparent ───────────────────────────────────────────────────────
+  const isDescendant = useCallback((ancestorId: string, checkId: string): boolean => {
+    const children = filtered.filter(s => s.padre === ancestorId)
+    return children.some(c => c.codice === checkId || isDescendant(c.codice, checkId))
+  }, [filtered])
+
+  const handleNodeDrag = useCallback((_: React.MouseEvent, draggedNode: Node) => {
+    const { x, y } = draggedNode.position
+    const W = compactMode ? 160 : 220
+    const H = compactMode ? 50 : 70
+    const cx = x + W / 2, cy = y + H / 2
+    const currentParent = filtered.find(s => s.codice === draggedNode.id)?.padre
+    const target = nodesRef.current.find(n => {
+      if (n.id === draggedNode.id || n.type !== 'orgNode') return false
+      if (n.id === currentParent) return false
+      if (isDescendant(draggedNode.id, n.id)) return false
+      const nx = n.position.x, ny = n.position.y
+      return cx >= nx && cx <= nx + W && cy >= ny && cy <= ny + H
+    })
+    setDragTargetId(target?.id ?? null)
+  }, [filtered, compactMode, isDescendant])
+
+  const handleNodeDragStop = useCallback((_: React.MouseEvent, draggedNode: Node) => {
+    if (dragTargetId) {
+      const s = filtered.find(s => s.codice === draggedNode.id)
+      const target = filtered.find(s => s.codice === dragTargetId)
+      setPendingReparent({
+        nodeId: draggedNode.id,
+        nodeLabel: s?.nome ?? draggedNode.id,
+        newParentId: dragTargetId,
+        newParentLabel: target?.nome ?? dragTargetId,
+      })
+    }
+    setDragTargetId(null)
+    setDragResetKey(k => k + 1)
+  }, [dragTargetId, filtered])
+
+  const handleConfirmReparent = useCallback(async () => {
+    if (!pendingReparent) return
+    setReparenting(true)
+    try {
+      const r = await api.struttureTns.setParent(pendingReparent.nodeId, pendingReparent.newParentId)
+      if (r.success) {
+        showToast(`${pendingReparent.nodeLabel} → ${pendingReparent.newParentLabel}`, 'success')
+        await refreshAll()
+      } else {
+        showToast(r.error ?? 'Errore', 'error')
+      }
+    } catch (e) {
+      showToast(String(e), 'error')
+    } finally {
+      setReparenting(false)
+      setPendingReparent(null)
+    }
+  }, [pendingReparent, showToast, refreshAll])
 
   const openDrawer = useCallback((codice: string) => {
     const s = filtered.find(s => s.codice === codice) ?? null
@@ -339,15 +438,19 @@ export default function TnsCanvas() {
         entranceDelay = sibIdx * 40
       }
 
+      const label = s ? (resolveField(s, nodeFields[0]) ?? codice) : codice
+      const sublabel = s && nodeFields[1] ? resolveField(s, nodeFields[1]) : undefined
+      const extraDetail = s && nodeFields[2] ? resolveField(s, nodeFields[2]) : undefined
+
       return {
         id: codice,
         type: 'orgNode',
         position: { x: tn.x, y: tn.y },
         data: {
           id: codice,
-          label: s?.nome ?? codice,
-          sublabel: codice,
-          extraDetail: s?.titolare ?? s?.livello,
+          label,
+          sublabel,
+          extraDetail,
           tipo: 'TNS' as const,
           collapsed: isCollapsed, hasChildren: totalChildren > 0,
           childrenCount: totalChildren, depth: tn.depth,
@@ -373,11 +476,21 @@ export default function TnsCanvas() {
     return { nodes: treeNodes as Node[], edges: treeEdges }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, visibleTree, collapsedSet, childCountMap, highlightedNode,
-      toggleCollapse, filtered, colorMode, colorMap, semanticStatusMap, activePath, compactMode, openDrawer, strutturaTnsMap])
+      toggleCollapse, filtered, colorMode, colorMap, semanticStatusMap, activePath, compactMode, openDrawer, strutturaTnsMap, nodeFields])
 
   useEffect(() => {
     prevVisibleIdsRef.current = new Set(nodes.filter(n => n.type === 'orgNode').map(n => n.id))
+    nodesRef.current = nodes
   }, [nodes])
+
+  const derivedNodes = useMemo(() => {
+    if (!dragTargetId && dragResetKey === 0) return nodes
+    return nodes.map(n => n.id === dragTargetId
+      ? { ...n, className: 'ring-2 ring-green-400 rounded-lg' }
+      : n
+    )
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, dragTargetId, dragResetKey])
 
   useEffect(() => {
     if (nodes.length > 0) setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 100)
@@ -408,12 +521,6 @@ export default function TnsCanvas() {
     setTimeout(() => setHighlightedNode(null), 2000)
   }, [nodes, setCenter])
 
-  const handleNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
-    if (node.type !== 'orgNode') return
-    setFocusedNode(node.id)
-    setContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
-  }, [])
-
   const handleFocusExpand = useCallback((nodeId: string) => {
     const s = filtered.find(s => s.codice === nodeId)
     drillInto(nodeId, s?.nome ?? nodeId, 'expand', () => {
@@ -429,6 +536,20 @@ export default function TnsCanvas() {
       setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
     })
   }, [filtered, drillInto, fitView])
+
+  const handleNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
+    if (node.type !== 'orgNode') return
+    setFocusedNode(node.id)
+    const hasChildren = (childCountMap.get(node.id) ?? 0) > 0
+    if (hasChildren) handleDrillIn(node.id)
+  }, [childCountMap, handleDrillIn])
+
+  const handleNodeContextMenu = useCallback((e: React.MouseEvent, node: Node) => {
+    e.preventDefault()
+    if (node.type !== 'orgNode') return
+    setFocusedNode(node.id)
+    setContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+  }, [])
 
   const handleNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
@@ -482,7 +603,7 @@ export default function TnsCanvas() {
           )}
         </div>
 
-        {drillPath.length <= 1 && (
+        {viewMode === 'tree' && drillPath.length <= 1 && (
           <>
             <button onClick={() => setCollapsedSet(new Set())}
               className="text-sm text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-700 rounded-md transition-colors">
@@ -496,7 +617,7 @@ export default function TnsCanvas() {
         )}
 
         {/* Drill breadcrumb */}
-        {drillPath.length > 1 && (
+        {viewMode === 'tree' && drillPath.length > 1 && (
           <div className="flex items-center gap-0.5 text-sm">
             {drillPath.map((item, idx) => (
               <React.Fragment key={idx}>
@@ -517,6 +638,22 @@ export default function TnsCanvas() {
           </div>
         )}
 
+        {/* Drag edit mode toggle */}
+        {viewMode === 'tree' && (
+          <button
+            onClick={() => { setDragEditMode(m => !m); setDragTargetId(null) }}
+            className={[
+              'px-2.5 py-1.5 text-xs rounded-md border transition-colors',
+              dragEditMode
+                ? 'bg-amber-900/50 border-amber-600 text-amber-300 font-medium'
+                : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+            ].join(' ')}
+            title="Modalità modifica struttura: trascina un nodo su un altro per cambiarne il padre"
+          >
+            {dragEditMode ? '✎ Modifica attiva' : '✎ Modifica struttura'}
+          </button>
+        )}
+
         <div className="flex-1" />
 
         {focusedNode && drillPath.length <= 1 && (
@@ -532,6 +669,23 @@ export default function TnsCanvas() {
           <option value="sede_tns">Sede TNS</option>
           <option value="livello">Livello</option>
         </select>
+
+        {/* Campi nodo */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-slate-500 whitespace-nowrap">Campi:</span>
+          {([0, 1, 2] as const).map(i => (
+            <select
+              key={i}
+              value={nodeFields[i]}
+              onChange={e => setNodeFields(prev => { const n = [...prev] as [string,string,string]; n[i] = e.target.value; return n })}
+              className="text-xs bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              {NODE_FIELD_OPTIONS.filter(o => o.value === '' || o.value === nodeFields[i] || !nodeFields.includes(o.value)).map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          ))}
+        </div>
 
         <span className="text-xs text-slate-500 px-2 py-1 bg-slate-800 rounded border border-slate-700 tabular-nums">
           {compactMode ? 'Compact' : zoom <= 0.4 ? 'Macro' : zoom <= 0.8 ? 'Standard' : 'Micro'}
@@ -566,17 +720,21 @@ export default function TnsCanvas() {
       <div className="flex flex-1 min-h-0">
         <div className="flex-1 min-w-0 relative">
           <ReactFlow
-            nodes={nodes} edges={edges}
+            nodes={derivedNodes} edges={edges}
             nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES}
             fitView fitViewOptions={{ padding: 0.15 }}
             minZoom={0.1} maxZoom={2}
             proOptions={{ hideAttribution: true }}
-            onNodeClick={handleNodeClick}
+            nodesDraggable={dragEditMode}
+            onNodeClick={dragEditMode ? undefined : handleNodeClick}
+            onNodeContextMenu={handleNodeContextMenu}
             onNodeDoubleClick={handleNodeDoubleClick}
             onPaneClick={handlePaneClick}
             onNodeMouseEnter={(_, node) => { if (node.type === 'orgNode') setHoveredNode(node.id) }}
             onNodeMouseLeave={() => setHoveredNode(null)}
-            style={{ background: '#0f172a' }}
+            onNodeDrag={dragEditMode ? handleNodeDrag : undefined}
+            onNodeDragStop={dragEditMode ? handleNodeDragStop : undefined}
+            style={{ background: '#0f172a', cursor: dragEditMode ? 'grab' : undefined }}
           >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#334155" />
             <Controls position="bottom-right" className="!shadow-none !border !border-slate-700 !rounded-lg overflow-hidden" />
@@ -633,6 +791,39 @@ export default function TnsCanvas() {
           onOpenDetail={() => { const s = filtered.find(s => s.codice === contextMenu.nodeId) ?? null; setDrawerRecord(s); setDrawerOpen(true) }}
           onClose={() => setContextMenu(null)}
         />
+      )}
+
+      {/* Reparent confirmation modal */}
+      {pendingReparent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-96 p-6 flex flex-col gap-4">
+            <h3 className="text-sm font-semibold text-slate-200">Modifica struttura TNS</h3>
+            <p className="text-sm text-slate-400">
+              Sposta <span className="text-slate-100 font-medium">{pendingReparent.nodeLabel}</span> sotto{' '}
+              <span className="text-green-300 font-medium">{pendingReparent.newParentLabel}</span>?
+            </p>
+            <p className="text-xs text-slate-500">
+              Il campo <code className="font-mono bg-slate-800 px-1 rounded">padre</code> verrà aggiornato nel database.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setPendingReparent(null)} disabled={reparenting}
+                className="px-4 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+                Annulla
+              </button>
+              <button onClick={handleConfirmReparent} disabled={reparenting}
+                className="px-4 py-1.5 text-sm bg-green-700 hover:bg-green-600 text-white rounded-lg transition-colors disabled:opacity-50">
+                {reparenting ? 'Aggiorno…' : 'Conferma'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drag mode banner */}
+      {dragEditMode && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 px-4 py-2 bg-amber-900/80 border border-amber-600 rounded-full text-xs text-amber-200 pointer-events-none shadow-lg">
+          Trascina un nodo sopra un altro per cambiarne la struttura padre
+        </div>
       )}
     </div>
   )

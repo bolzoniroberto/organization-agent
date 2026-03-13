@@ -4,7 +4,6 @@ import { ReactFlowProvider } from '@xyflow/react'
 import PosizioniCanvas from './orgchart/PosizioniCanvas'
 import PersoneCanvas from './orgchart/PersoneCanvas'
 import TnsCanvas from './orgchart/TnsCanvas'
-import AccordionView from './AccordionView'
 import { useHRStore } from '@/store/useHRStore'
 import type { OrgSubTab } from '@/types'
 
@@ -12,7 +11,6 @@ const SUB_TABS: { id: OrgSubTab; label: string }[] = [
   { id: 'posizioni', label: 'Posizioni' },
   { id: 'persone', label: 'Persone / Timesheet' },
   { id: 'tns', label: 'TNS' },
-  { id: 'accordion', label: 'Accordion' },
 ]
 
 export default function OrgchartView() {
@@ -25,7 +23,6 @@ export default function OrgchartView() {
     if (activeView === 'posizioni') setSubTab('posizioni')
     else if (activeView === 'persone-ts') setSubTab('persone')
     else if (activeView === 'tns') setSubTab('tns')
-    else if (activeView === 'accordion') setSubTab('accordion')
   }, [activeView])
 
   const handleTabChange = (tab: OrgSubTab) => {
@@ -74,11 +71,6 @@ export default function OrgchartView() {
             <ReactFlowProvider>
               <TnsCanvas />
             </ReactFlowProvider>
-          </div>
-        )}
-        {mounted.has('accordion') && (
-          <div className={vis('accordion')}>
-            <AccordionView />
           </div>
         )}
       </div>

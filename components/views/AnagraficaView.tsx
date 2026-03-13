@@ -7,7 +7,7 @@ import 'ag-grid-community/styles/ag-theme-alpine.css'  // includes ag-theme-alpi
 import { ChevronRight, Plus, Search, Eye, EyeOff, Columns, Download } from 'lucide-react'
 import { useHRStore } from '@/store/useHRStore'
 import { api } from '@/lib/api'
-import type { NodoOrganigramma, Persona, RuoloTns, StrutturaTns } from '@/types'
+import type { NodoOrganigramma, Persona, StrutturaTns } from '@/types'
 import RecordDrawer from '@/components/shared/RecordDrawer'
 import ColumnsPanel from './AnagraficaView/ColumnsPanel'
 import VariabiliManager from './AnagraficaView/VariabiliManager'
@@ -49,25 +49,34 @@ const PERSONE_ALL_COLS = [
 ]
 const PERSONE_DEFAULT_VISIBLE = new Set(['cf', 'cognome', 'nome', 'email', 'societa', 'area', 'qualifica', 'sede'])
 
+// 26 colonne esatte del formato TNS ORG (stessa struttura del file Excel)
 const TNS_ALL_COLS = [
-  { field: 'cf_persona', label: 'CF Persona' },
-  { field: 'codice_tns', label: 'Codice TNS' },
-  { field: 'padre_tns', label: 'Padre TNS' },
-  { field: 'livello_tns', label: 'Livello' },
-  { field: 'titolare_tns', label: 'Titolare' },
-  { field: 'tipo_approvatore', label: 'Tipo Approv.' },
-  { field: 'codice_approvatore', label: 'Codice Approv.' },
-  { field: 'viaggiatore', label: 'Viaggiatore' },
-  { field: 'approvatore', label: 'Approvatore' },
-  { field: 'cassiere', label: 'Cassiere' },
-  { field: 'segretario', label: 'Segretario' },
-  { field: 'controllore', label: 'Controllore' },
-  { field: 'amministrazione', label: 'Amministrazione' },
-  { field: 'visualizzatore', label: 'Visualizzatore' },
-  { field: 'escluso_tns', label: 'Escluso TNS' },
-  { field: 'sede_tns', label: 'Sede TNS' },
+  { field: '_uo',              label: 'Unità Organizzativa' },
+  { field: 'cdc_amministrativo', label: 'CDCCOSTO' },
+  { field: 'cf',               label: 'TxCodFiscale' },
+  { field: 'livello_tns',      label: 'LIVELLO' },
+  { field: '_titolare',        label: 'Titolare' },
+  { field: 'padre_tns',        label: "UNITA' OPERATIVA PADRE" },
+  { field: 'ruoli_oltrv',      label: 'RUOLI OltreV' },
+  { field: 'ruoli_tns_desc',   label: 'RUOLI' },
+  { field: 'viaggiatore',      label: 'Viaggiatore' },
+  { field: 'segr_redaz',       label: 'Segr_Redaz' },
+  { field: 'approvatore',      label: 'Approvatore' },
+  { field: 'cassiere',         label: 'Cassiere' },
+  { field: 'visualizzatore',   label: 'Visualizzatori' },
+  { field: 'segretario',       label: 'Segretario' },
+  { field: 'controllore',      label: 'Controllore' },
+  { field: 'amministrazione',  label: 'Amministrazione' },
+  { field: 'segreteria_red_asst', label: 'SegreteriA Red. Ass.ta' },
+  { field: 'segretario_asst',  label: 'SegretariO Ass.to' },
+  { field: 'controllore_asst', label: 'Controllore Ass.to' },
+  { field: 'ruoli_afc',        label: 'RuoliAFC' },
+  { field: 'ruoli_hr',         label: 'RuoliHR' },
+  { field: 'altri_ruoli',      label: 'AltriRuoli' },
+  { field: 'sede_tns',         label: 'Sede_TNS' },
+  { field: 'gruppo_sind',      label: 'GruppoSind' },
 ]
-const TNS_DEFAULT_VISIBLE = new Set(['cf_persona', 'codice_tns', 'padre_tns', 'livello_tns', 'titolare_tns', 'tipo_approvatore', 'sede_tns'])
+const TNS_DEFAULT_VISIBLE = new Set(TNS_ALL_COLS.map(c => c.field))
 
 const STRUTT_TNS_ALL_COLS = [
   { field: 'codice', label: 'Codice' },
@@ -87,7 +96,8 @@ const TIPO_NODO_BADGE: Record<string, string> = {
 }
 
 export default function AnagraficaView() {
-  const { nodi, persone, tns, struttureTns, variabiliDef, variabiliValori, refreshAll, refreshTns, refreshStruttureTns, showToast, activeView } = useHRStore()
+  const { nodi, persone, struttureTns, variabiliDef, variabiliValori, refreshAll, refreshPersone, refreshStruttureTns, showToast, activeView } = useHRStore()
+  const tns = useMemo(() => persone.filter(p => p.codice_tns != null), [persone])
   const [subTab, setSubTab] = useState<SubTab>('nodi')
   const [search, setSearch] = useState('')
   const [showDeleted, setShowDeleted] = useState(false)
@@ -135,7 +145,7 @@ export default function AnagraficaView() {
       } else if (subTab === 'persone') {
         result = await api.persone.update((params.data as Persona).cf, { [field]: newVal })
       } else if (subTab === 'tns') {
-        result = await api.tns.update((params.data as RuoloTns).cf_persona, { [field]: newVal })
+        result = await api.tns.update((params.data as Persona).cf, { [field]: newVal })
       } else {
         result = await api.struttureTns.update((params.data as StrutturaTns).codice, { [field]: newVal })
       }
@@ -146,14 +156,14 @@ export default function AnagraficaView() {
         return
       }
       showToast(`Campo "${field}" aggiornato`, 'success')
-      if (subTab === 'tns') await refreshTns()
+      if (subTab === 'tns') await refreshPersone()
       else if (subTab === 'strutture-tns') await refreshStruttureTns()
       else await refreshAll()
     } catch (e) {
       showToast(String(e), 'error')
       params.node.setDataValue(field, params.oldValue)
     }
-  }, [subTab, showToast, refreshAll, refreshTns])
+  }, [subTab, showToast, refreshAll, refreshPersone, refreshStruttureTns])
 
   // ── ColDef: Nodi ──────────────────────────────────────────────────────────
   const nodiCols: ColDef[] = useMemo(() => {
@@ -229,28 +239,36 @@ export default function AnagraficaView() {
     return base
   }, [personeVisible, variabiliDef, visibleVars, openDrawer])
 
-  // ── ColDef: TNS ───────────────────────────────────────────────────────────
+  // ── ColDef: TNS (26 colonne formato TNS ORG) ─────────────────────────────
   const tnsCols: ColDef[] = useMemo(() => {
     const base: ColDef[] = [
-      { headerCheckboxSelection: true, checkboxSelection: true, width: 40, minWidth: 40, maxWidth: 40, pinned: 'left' as const, sortable: false, filter: false, floatingFilter: false, editable: false, suppressFillHandle: true, resizable: false, suppressMovable: true },
+      { headerCheckboxSelection: true, checkboxSelection: true, headerCheckboxSelectionFilteredOnly: true, width: 40, minWidth: 40, maxWidth: 40, pinned: 'left' as const, sortable: false, filter: false, floatingFilter: false, editable: false, suppressFillHandle: true, resizable: false, suppressMovable: true },
     ]
     const colMap: Record<string, ColDef> = {
-      cf_persona: { field: 'cf_persona', headerName: 'CF Persona', width: 160, editable: false, suppressFillHandle: true, cellClass: 'font-mono text-xs text-slate-400' },
-      codice_tns: { field: 'codice_tns', headerName: 'Codice TNS', width: 130, editable: true, cellClass: 'font-mono text-xs text-green-300' },
-      padre_tns: { field: 'padre_tns', headerName: 'Padre TNS', width: 130, editable: true, cellClass: 'font-mono text-xs text-slate-400' },
-      livello_tns: { field: 'livello_tns', headerName: 'Livello', width: 100, editable: true, cellClass: 'text-xs text-slate-300' },
-      titolare_tns: { field: 'titolare_tns', headerName: 'Titolare', flex: 1.5, editable: true, cellClass: 'text-sm text-slate-200' },
-      tipo_approvatore: { field: 'tipo_approvatore', headerName: 'Tipo Approv.', width: 120, editable: true, cellClass: 'text-xs text-slate-400' },
-      codice_approvatore: { field: 'codice_approvatore', headerName: 'Codice Approv.', width: 130, editable: true, cellClass: 'font-mono text-xs text-slate-400' },
-      viaggiatore: { field: 'viaggiatore', headerName: 'Viaggiatore', width: 100, editable: true, cellClass: 'text-xs text-slate-400' },
-      approvatore: { field: 'approvatore', headerName: 'Approvatore', width: 110, editable: true, cellClass: 'text-xs text-slate-400' },
-      cassiere: { field: 'cassiere', headerName: 'Cassiere', width: 100, editable: true, cellClass: 'text-xs text-slate-400' },
-      segretario: { field: 'segretario', headerName: 'Segretario', width: 100, editable: true, cellClass: 'text-xs text-slate-400' },
-      controllore: { field: 'controllore', headerName: 'Controllore', width: 110, editable: true, cellClass: 'text-xs text-slate-400' },
-      amministrazione: { field: 'amministrazione', headerName: 'Ammin.', width: 100, editable: true, cellClass: 'text-xs text-slate-400' },
-      visualizzatore: { field: 'visualizzatore', headerName: 'Visualiz.', width: 100, editable: true, cellClass: 'text-xs text-slate-400' },
-      escluso_tns: { field: 'escluso_tns', headerName: 'Escluso', width: 90, editable: true, type: 'numericColumn', cellClass: 'text-xs text-slate-400 text-center' },
-      sede_tns: { field: 'sede_tns', headerName: 'Sede TNS', width: 110, editable: true, cellClass: 'text-xs text-slate-400' },
+      _uo:               { field: '_uo',               headerName: 'Unità Organizzativa',      width: 180, editable: false, cellClass: 'text-xs text-slate-400' },
+      cdc_amministrativo:{ field: 'cdc_amministrativo', headerName: 'CDCCOSTO',                width: 100, editable: true,  cellClass: 'font-mono text-xs text-slate-400' },
+      cf:                { field: 'cf',                headerName: 'TxCodFiscale',             width: 160, editable: false, suppressFillHandle: true, cellClass: 'font-mono text-xs text-slate-400' },
+      livello_tns:       { field: 'livello_tns',       headerName: 'LIVELLO',                  width: 90,  editable: true,  cellClass: 'text-xs text-slate-300' },
+      _titolare:         { field: '_titolare',         headerName: 'Titolare',                 flex: 1.5,  editable: false, cellClass: 'text-sm text-slate-200 font-medium' },
+      padre_tns:         { field: 'padre_tns',         headerName: "UNITA' OPERATIVA PADRE",   width: 160, editable: true,  cellClass: 'font-mono text-xs text-slate-400' },
+      ruoli_oltrv:       { field: 'ruoli_oltrv',       headerName: 'RUOLI OltreV',             width: 130, editable: true,  cellClass: 'text-xs text-slate-400' },
+      ruoli_tns_desc:    { field: 'ruoli_tns_desc',    headerName: 'RUOLI',                    width: 130, editable: true,  cellClass: 'text-xs text-slate-400' },
+      viaggiatore:       { field: 'viaggiatore',       headerName: 'Viaggiatore',              width: 100, editable: true,  cellClass: 'text-xs text-slate-400' },
+      segr_redaz:        { field: 'segr_redaz',        headerName: 'Segr_Redaz',               width: 110, editable: true,  cellClass: 'text-xs text-slate-400' },
+      approvatore:       { field: 'approvatore',       headerName: 'Approvatore',              width: 110, editable: true,  cellClass: 'text-xs text-slate-400' },
+      cassiere:          { field: 'cassiere',          headerName: 'Cassiere',                 width: 100, editable: true,  cellClass: 'text-xs text-slate-400' },
+      visualizzatore:    { field: 'visualizzatore',    headerName: 'Visualizzatori',           width: 110, editable: true,  cellClass: 'text-xs text-slate-400' },
+      segretario:        { field: 'segretario',        headerName: 'Segretario',               width: 100, editable: true,  cellClass: 'text-xs text-slate-400' },
+      controllore:       { field: 'controllore',       headerName: 'Controllore',              width: 110, editable: true,  cellClass: 'text-xs text-slate-400' },
+      amministrazione:   { field: 'amministrazione',   headerName: 'Amministrazione',          width: 130, editable: true,  cellClass: 'text-xs text-slate-400' },
+      segreteria_red_asst:{ field: 'segreteria_red_asst', headerName: 'SegreteriA Red. Ass.ta', width: 155, editable: true, cellClass: 'text-xs text-slate-400' },
+      segretario_asst:   { field: 'segretario_asst',   headerName: 'SegretariO Ass.to',       width: 140, editable: true,  cellClass: 'text-xs text-slate-400' },
+      controllore_asst:  { field: 'controllore_asst',  headerName: 'Controllore Ass.to',      width: 140, editable: true,  cellClass: 'text-xs text-slate-400' },
+      ruoli_afc:         { field: 'ruoli_afc',         headerName: 'RuoliAFC',                width: 110, editable: true,  cellClass: 'text-xs text-slate-400' },
+      ruoli_hr:          { field: 'ruoli_hr',          headerName: 'RuoliHR',                 width: 100, editable: true,  cellClass: 'text-xs text-slate-400' },
+      altri_ruoli:       { field: 'altri_ruoli',       headerName: 'AltriRuoli',              width: 120, editable: true,  cellClass: 'text-xs text-slate-400' },
+      sede_tns:          { field: 'sede_tns',          headerName: 'Sede_TNS',                width: 110, editable: true,  cellClass: 'text-xs text-slate-400' },
+      gruppo_sind:       { field: 'gruppo_sind',       headerName: 'GruppoSind',              width: 120, editable: true,  cellClass: 'text-xs text-slate-400' },
     }
     TNS_ALL_COLS.filter(c => tnsVisible.has(c.field)).forEach(c => { if (colMap[c.field]) base.push(colMap[c.field]) })
     variabiliDef.filter(v => visibleVars.has(v.id) && (v.target === 'tns' || v.target === 'tutti')).forEach(v => {
@@ -325,13 +343,20 @@ export default function AnagraficaView() {
   }, [persone, search, showDeleted])
 
   const filteredTns = useMemo(() => {
-    if (!search) return tns
+    const withDerived = tns.map(p => ({
+      ...p,
+      _uo: p.societa ?? '',
+      _titolare: [p.cognome, p.nome].filter(Boolean).join(' '),
+    }))
+    if (!search) return withDerived
     const lower = search.toLowerCase()
-    return tns.filter(t =>
-      t.cf_persona?.toLowerCase().includes(lower) ||
+    return withDerived.filter(t =>
+      t.cf?.toLowerCase().includes(lower) ||
+      t.cognome?.toLowerCase().includes(lower) ||
+      t.nome?.toLowerCase().includes(lower) ||
       t.codice_tns?.toLowerCase().includes(lower) ||
-      t.titolare_tns?.toLowerCase().includes(lower) ||
-      t.sede_tns?.toLowerCase().includes(lower)
+      t.sede_tns?.toLowerCase().includes(lower) ||
+      t._titolare.toLowerCase().includes(lower)
     )
   }, [tns, search])
 
@@ -368,7 +393,7 @@ export default function AnagraficaView() {
               ].join(' ')}>
               {tab === 'nodi' ? `Nodi (${nodi.filter(n => !n.deleted_at).length})` :
                tab === 'persone' ? `Persone (${persone.filter(p => !p.deleted_at).length})` :
-               tab === 'tns' ? `Ruoli TNS (${tns.length})` :
+               tab === 'tns' ? `Ruoli TNS (${persone.filter(p => p.codice_tns != null).length})` :
                tab === 'strutture-tns' ? `Strutture TNS (${struttureTns.length})` :
                tab === 'variabili' ? 'Variabili' : 'Anomalie'}
             </button>
@@ -411,12 +436,21 @@ export default function AnagraficaView() {
               </button>
             )}
 
-            <button
-              onClick={() => { const a = document.createElement('a'); a.href = '/api/export'; a.download = ''; document.body.appendChild(a); a.click(); a.remove() }}
-              className="flex items-center gap-1.5 text-sm border border-slate-600 text-slate-400 hover:text-slate-200 px-2.5 py-1.5 rounded-md transition-colors">
-              <Download className="w-3.5 h-3.5" />
-              XLS
-            </button>
+            {subTab === 'tns' ? (
+              <button
+                onClick={() => { const base = process.env.NEXT_PUBLIC_BASE_PATH ?? ''; const a = document.createElement('a'); a.href = `${base}/api/export/tns-org`; a.download = ''; document.body.appendChild(a); a.click(); a.remove() }}
+                className="flex items-center gap-1.5 text-sm border border-green-700 text-green-400 hover:text-green-300 hover:border-green-600 px-2.5 py-1.5 rounded-md transition-colors">
+                <Download className="w-3.5 h-3.5" />
+                TNS ORG XLS
+              </button>
+            ) : (
+              <button
+                onClick={() => { const base = process.env.NEXT_PUBLIC_BASE_PATH ?? ''; const a = document.createElement('a'); a.href = `${base}/api/export`; a.download = ''; document.body.appendChild(a); a.click(); a.remove() }}
+                className="flex items-center gap-1.5 text-sm border border-slate-600 text-slate-400 hover:text-slate-200 px-2.5 py-1.5 rounded-md transition-colors">
+                <Download className="w-3.5 h-3.5" />
+                XLS
+              </button>
+            )}
           </>
         )}
       </div>
@@ -460,7 +494,7 @@ export default function AnagraficaView() {
         )}
         {subTab === 'tns' && (
           <AgGridReact
-            rowData={withVars(filteredTns, 'tns', 'cf_persona')}
+            rowData={withVars(filteredTns, 'persona', 'cf')}
             columnDefs={tnsCols}
             defaultColDef={{ resizable: true, sortable: true, filter: true, floatingFilter: true }}
             rowSelection="multiple"

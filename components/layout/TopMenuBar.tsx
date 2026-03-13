@@ -98,7 +98,12 @@ export default function TopMenuBar() {
           <MenuItem label="Posizioni" section="organigramma" view="posizioni" onSelect={nav} activeSection={activeSection} activeView={activeView} />
           <MenuItem label="Persone / Timesheet" section="organigramma" view="persone-ts" onSelect={nav} activeSection={activeSection} activeView={activeView} />
           <MenuItem label="TNS" section="organigramma" view="tns" onSelect={nav} activeSection={activeSection} activeView={activeView} />
-          <MenuItem label="Accordion" section="organigramma" view="accordion" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+        </MenuButton>
+
+        <MenuButton label="Accordion" active={activeSection === 'accordion'}>
+          <MenuItem label="Unità Organizzative" section="accordion" view="accordion-uo" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="TNS" section="accordion" view="accordion-tns" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="Responsabili" section="accordion" view="accordion-responsabili" onSelect={nav} activeSection={activeSection} activeView={activeView} />
         </MenuButton>
 
         <MenuButton label="Master Data" active={activeSection === 'masterdata'}>
@@ -130,6 +135,18 @@ export default function TopMenuBar() {
           ].join(' ')}
         >
           Storico
+        </button>
+
+        <button
+          onClick={() => { setActiveSection('agenti'); setActiveView('ordine-servizio') }}
+          className={[
+            'px-3 py-1.5 text-sm rounded-md transition-colors',
+            activeSection === 'agenti'
+              ? 'bg-slate-700 text-indigo-300'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          ].join(' ')}
+        >
+          Agenti
         </button>
 
         <button

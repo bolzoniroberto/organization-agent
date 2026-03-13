@@ -96,7 +96,7 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
 
   // Chiave primaria naturale dell'entità (usata per UPDATE/INSERT nel DB)
   const naturalKey = entity === 'nodi_org' ? 'id' : entity === 'persone' ? 'cf' :
-    entity === 'timesheet' ? 'cf_dipendente' : entity === 'strutture_tns' ? 'codice' : 'cf_persona'
+    entity === 'timesheet' ? 'cf_dipendente' : entity === 'strutture_tns' ? 'codice' : 'cf'
 
   // joinKey: campo del file/DB usato per trovare il record. Può differire dalla PK naturale.
   const joinKey = customKeyField ?? naturalKey
@@ -104,7 +104,7 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
 
   const anomalie = detectAnomalies(rows, entity, mapping, joinKey)
 
-  const report: ImportReport = { inserted: 0, updated: 0, skipped: 0, errors: [], anomalie: anomalie.length }
+  const report: ImportReport = { inserted: 0, updated: 0, skipped: 0, varSaved: 0, errors: [], anomalie: anomalie.length }
   const dryResult: DryRunResult = { toInsert: 0, toUpdate: 0, toSkip: 0, toVarUpdate: 0, anomalie, diff: [] }
 
   // Collect var mappings
@@ -134,7 +134,7 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
       } else if (entity === 'timesheet') {
         existing = d.prepare(`SELECT * FROM supervisioni_timesheet WHERE ${joinKey} = ?`).get(joinValue) as Record<string, unknown> | undefined
       } else if (entity === 'tns') {
-        existing = d.prepare(`SELECT * FROM ruoli_tns WHERE ${joinKey} = ?`).get(joinValue) as Record<string, unknown> | undefined
+        existing = d.prepare(`SELECT * FROM persone WHERE ${joinKey} = ? AND deleted_at IS NULL`).get(joinValue) as Record<string, unknown> | undefined
       } else if (entity === 'strutture_tns') {
         existing = d.prepare(`SELECT * FROM strutture_tns WHERE ${joinKey} = ?`).get(joinValue) as Record<string, unknown> | undefined
       }
@@ -163,10 +163,19 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
           else dryResult.toSkip++
         }
         // conta anche le variabili che verranno aggiornate
+        const dryEntitaTipo = { nodi_org: 'nodo_org', persone: 'persona', timesheet: 'timesheet', tns: 'persona', strutture_tns: 'struttura_tns' }[entity]
         const dryEntitaId = existing ? String(existing[naturalKey]) : (isNaturalKey ? joinValue : null)
         if (dryEntitaId) {
-          for (const [, col] of Object.entries(varMappings)) {
-            if (toStr(row[col]) !== null) dryResult.toVarUpdate++
+          for (const [varId, col] of Object.entries(varMappings)) {
+            const valore = toStr(row[col])
+            if (valore === null) continue
+            if (!existing && mode === 'INTEGRATIVA') continue
+            if (mode === 'INTEGRATIVA') {
+              const curr = d.prepare('SELECT valore FROM variabili_org_valori WHERE entita_tipo = ? AND entita_id = ? AND var_id = ?')
+                .get(dryEntitaTipo, dryEntitaId, Number(varId)) as { valore: string | null } | undefined
+              if (curr?.valore != null) continue
+            }
+            dryResult.toVarUpdate++
           }
         }
         continue
@@ -223,29 +232,10 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
               data_inizio: mapped.data_inizio ?? null, data_fine: mapped.data_fine ?? null
             })
           } else if (entity === 'tns') {
-            insResult = d.prepare(`INSERT OR IGNORE INTO ruoli_tns
-              (cf_persona, codice_tns, padre_tns, livello_tns, titolare_tns, tipo_approvatore, codice_approvatore,
-               cdc_tns, sede_tns, viaggiatore, segr_redaz, approvatore, cassiere, visualizzatore,
-               segretario, controllore, amministrazione, segreteria_red_asst, segretario_asst,
-               controllore_asst, ruoli_oltrv, ruoli, ruoli_afc, ruoli_hr, altri_ruoli, gruppo_sind, escluso_tns)
-              VALUES (@cf_persona, @codice_tns, @padre_tns, @livello_tns, @titolare_tns, @tipo_approvatore, @codice_approvatore,
-               @cdc_tns, @sede_tns, @viaggiatore, @segr_redaz, @approvatore, @cassiere, @visualizzatore,
-               @segretario, @controllore, @amministrazione, @segreteria_red_asst, @segretario_asst,
-               @controllore_asst, @ruoli_oltrv, @ruoli, @ruoli_afc, @ruoli_hr, @altri_ruoli, @gruppo_sind, @escluso_tns)`).run({
-              cf_persona: key, codice_tns: mapped.codice_tns ?? null, padre_tns: mapped.padre_tns ?? null,
-              livello_tns: mapped.livello_tns ?? null, titolare_tns: mapped.titolare_tns ?? null,
-              tipo_approvatore: mapped.tipo_approvatore ?? null, codice_approvatore: mapped.codice_approvatore ?? null,
-              cdc_tns: mapped.cdc_tns ?? null, sede_tns: mapped.sede_tns ?? null,
-              viaggiatore: mapped.viaggiatore ?? null, segr_redaz: mapped.segr_redaz ?? null,
-              approvatore: mapped.approvatore ?? null, cassiere: mapped.cassiere ?? null,
-              visualizzatore: mapped.visualizzatore ?? null, segretario: mapped.segretario ?? null,
-              controllore: mapped.controllore ?? null, amministrazione: mapped.amministrazione ?? null,
-              segreteria_red_asst: mapped.segreteria_red_asst ?? null, segretario_asst: mapped.segretario_asst ?? null,
-              controllore_asst: mapped.controllore_asst ?? null, ruoli_oltrv: mapped.ruoli_oltrv ?? null,
-              ruoli: mapped.ruoli ?? null, ruoli_afc: mapped.ruoli_afc ?? null, ruoli_hr: mapped.ruoli_hr ?? null,
-              altri_ruoli: mapped.altri_ruoli ?? null, gruppo_sind: mapped.gruppo_sind ?? null,
-              escluso_tns: mapped.escluso_tns ? parseInt(mapped.escluso_tns) : 0,
-            })
+            // Per entità 'tns' i dati sono in persone — mai INSERT nuovi record
+            report.skipped++
+            report.errors.push(`SKIP tns key=${key}: la persona non esiste in persone (mai INSERT da import tns)`)
+            continue
           } else if (entity === 'strutture_tns') {
             insResult = d.prepare(`INSERT OR IGNORE INTO strutture_tns
               (codice, nome, padre, livello, tipo, descrizione, attivo, cdc, titolare, cf_titolare, sede_tns,
@@ -276,7 +266,7 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
         } else {
           // UPDATE — usa sempre la PK naturale come WHERE clause per sicurezza
           const table = entity === 'nodi_org' ? 'nodi_organigramma' : entity === 'persone' ? 'persone' :
-            entity === 'timesheet' ? 'supervisioni_timesheet' : entity === 'strutture_tns' ? 'strutture_tns' : 'ruoli_tns'
+            entity === 'timesheet' ? 'supervisioni_timesheet' : entity === 'strutture_tns' ? 'strutture_tns' : 'persone'
           const pkField = naturalKey
 
           let updated = false
@@ -295,7 +285,7 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
         // Handle var mappings — usa la PK naturale come entita_id
         const ENTITY_TIPO: Record<EntityTarget, string> = {
           nodi_org: 'nodo_org', persone: 'persona', timesheet: 'timesheet',
-          tns: 'tns', strutture_tns: 'struttura_tns',
+          tns: 'persona', strutture_tns: 'struttura_tns',
         }
         const entitaTipo = ENTITY_TIPO[entity]
         const entitaId = existing ? String(existing[naturalKey]) : (isNaturalKey ? key : null)
@@ -317,6 +307,7 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
               var_id: Number(varId),
               valore
             })
+            report.varSaved++
           }
         }
       } catch (e) {

@@ -1,6 +1,7 @@
 import type {
-  NodoOrganigramma, Persona, SupervisioneTimesheet, RuoloTns, StrutturaTns,
-  ChangeLogEntry, ImportReport, VariabileOrgDefinizione, VariabileOrgValore, CleaningProposal
+  NodoOrganigramma, Persona, SupervisioneTimesheet, StrutturaTns,
+  ChangeLogEntry, ImportReport, VariabileOrgDefinizione, VariabileOrgValore, CleaningProposal,
+  OrdineServizioAnalysis, OrdineServizioProposal
 } from '../types'
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? ''
@@ -82,26 +83,29 @@ export const api = {
     get: (cf: string): Promise<SupervisioneTimesheet | null> =>
       fetch(u(`/api/timesheet/${encodeURIComponent(cf)}`)).then(r => r.status === 404 ? null : json(r)),
 
+    update: (cf: string, data: { cf_supervisore: string | null }): Promise<{ success: boolean; error?: string }> =>
+      fetch(u(`/api/timesheet/${encodeURIComponent(cf)}`), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => json(r)),
+
     delete: (cf: string, hard = false): Promise<{ success: boolean; error?: string }> =>
       fetch(u(`/api/timesheet/${encodeURIComponent(cf)}${hard ? '?hard=true' : ''}`), { method: 'DELETE' }).then(r => json(r)),
   },
 
   tns: {
-    list: (): Promise<RuoloTns[]> =>
+    list: (): Promise<Persona[]> =>
       fetch(u('/api/tns')).then(r => json(r)),
 
-    get: (cf: string): Promise<RuoloTns | null> =>
+    get: (cf: string): Promise<Persona | null> =>
       fetch(u(`/api/tns/${encodeURIComponent(cf)}`)).then(r => r.status === 404 ? null : json(r)),
 
-    update: (cf: string, data: Partial<RuoloTns>): Promise<{ success: boolean; error?: string }> =>
+    update: (cf: string, data: Partial<Persona>): Promise<{ success: boolean; error?: string }> =>
       fetch(u(`/api/tns/${encodeURIComponent(cf)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       }).then(r => json(r)),
 
-    delete: (cf: string, hard = false): Promise<{ success: boolean; error?: string }> =>
-      fetch(u(`/api/tns/${encodeURIComponent(cf)}${hard ? '?hard=true' : ''}`), { method: 'DELETE' }).then(r => json(r)),
+    deleteTns: (cf: string): Promise<{ success: boolean; error?: string }> =>
+      fetch(u(`/api/tns/${encodeURIComponent(cf)}`), { method: 'DELETE' }).then(r => json(r)),
   },
 
   changelog: {
@@ -183,8 +187,8 @@ export const api = {
   },
 
   struttureTns: {
-    list: (): Promise<StrutturaTns[]> =>
-      fetch(u('/api/strutture-tns')).then(r => json(r)),
+    list: (showDeleted = false): Promise<StrutturaTns[]> =>
+      fetch(u(`/api/strutture-tns?showDeleted=${showDeleted}`)).then(r => json(r)),
 
     get: (codice: string): Promise<StrutturaTns | null> =>
       fetch(u(`/api/strutture-tns/${encodeURIComponent(codice)}`)).then(r => r.status === 404 ? null : json(r)),
@@ -203,8 +207,21 @@ export const api = {
         body: JSON.stringify(data)
       }).then(r => json(r)),
 
-    delete: (codice: string): Promise<{ success: boolean; error?: string }> =>
-      fetch(u(`/api/strutture-tns/${encodeURIComponent(codice)}`), { method: 'DELETE' }).then(r => json(r)),
+    delete: (codice: string, force = false): Promise<{ success: boolean; error?: string; blocked?: boolean; childCount?: number; personCount?: number; subtreeCount?: number }> =>
+      fetch(u(`/api/strutture-tns/${encodeURIComponent(codice)}${force ? '?force=true' : ''}`), { method: 'DELETE' }).then(r => json(r)),
+
+    restore: (codice: string): Promise<{ success: boolean; error?: string }> =>
+      fetch(u(`/api/strutture-tns/${encodeURIComponent(codice)}/restore`), { method: 'POST' }).then(r => json(r)),
+
+    setParent: (codice: string, padre: string | null): Promise<{ success: boolean; error?: string }> =>
+      fetch(u(`/api/strutture-tns/${encodeURIComponent(codice)}/parent`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ padre }),
+      }).then(r => json(r)),
+
+    listPersone: (codice: string): Promise<Persona[]> =>
+      fetch(u(`/api/strutture-tns/${encodeURIComponent(codice)}/persone`)).then(r => json(r)),
   },
 
   dataCleaning: {
@@ -233,6 +250,22 @@ export const api = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+      }).then(r => json(r)),
+  },
+
+  agents: {
+    analyzeOrdineServizio: async (input: { file?: File; prompt?: string }): Promise<OrdineServizioAnalysis> => {
+      const fd = new FormData()
+      if (input.file) fd.append('file', input.file)
+      if (input.prompt) fd.append('prompt', input.prompt)
+      return fetch(u('/api/agents/ordine-servizio'), { method: 'POST', body: fd }).then(r => json(r))
+    },
+
+    executeOrdineServizio: async (proposte: OrdineServizioProposal[]): Promise<{ applied: number; errors: string[] }> =>
+      fetch(u('/api/agents/ordine-servizio/execute'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposte }),
       }).then(r => json(r)),
   },
 
@@ -277,6 +310,12 @@ export const api = {
       fd.append('sheetName', options.sheetName)
       if (options.keyField) fd.append('keyField', options.keyField)
       return fetch(u('/api/import/execute'), { method: 'POST', body: fd }).then(r => json(r))
+    },
+
+    tns: async (file: File): Promise<ImportReport> => {
+      const fd = new FormData()
+      fd.append('file', file)
+      return fetch(u('/api/import/tns'), { method: 'POST', body: fd }).then(r => json(r))
     },
   },
 }

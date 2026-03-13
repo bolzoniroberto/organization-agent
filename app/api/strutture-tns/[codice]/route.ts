@@ -43,14 +43,40 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ codi
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ codice: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ codice: string }> }) {
   try {
     const { codice } = await params
+    const force = req.nextUrl.searchParams.get('force') === 'true'
     const d = db()
-    const existing = d.prepare('SELECT nome FROM strutture_tns WHERE codice = ?').get(codice) as { nome: string | null } | undefined
+    const existing = d.prepare('SELECT nome FROM strutture_tns WHERE codice = ? AND deleted_at IS NULL').get(codice) as { nome: string | null } | undefined
     if (!existing) return NextResponse.json({ success: false, error: 'Non trovato' }, { status: 404 })
-    d.prepare('DELETE FROM strutture_tns WHERE codice = ?').run(codice)
-    writeChangeLog('struttura_tns', codice, existing.nome ?? codice, 'DELETE', null, null, null)
+
+    if (!force) {
+      // Check figli attivi
+      const childCount = (d.prepare('SELECT COUNT(*) as c FROM strutture_tns WHERE padre = ? AND deleted_at IS NULL').get(codice) as { c: number }).c
+      // Check persone assegnate (padre_tns)
+      const personCount = (d.prepare('SELECT COUNT(*) as c FROM persone WHERE padre_tns = ? AND deleted_at IS NULL').get(codice) as { c: number }).c
+      // Check subtree totale (conta tutti i discendenti attivi)
+      function subtreeCount(id: string): number {
+        const kids = (d.prepare('SELECT codice FROM strutture_tns WHERE padre = ? AND deleted_at IS NULL').all(id) as { codice: string }[])
+        return kids.reduce((sum, k) => sum + 1 + subtreeCount(k.codice), 0)
+      }
+      const subtree = subtreeCount(codice)
+
+      if (childCount > 0 || personCount > 0 || subtree > 0) {
+        return NextResponse.json({
+          success: false,
+          blocked: true,
+          childCount,
+          personCount,
+          subtreeCount: subtree,
+          error: `La struttura ha ${childCount} figli diretti, ${subtree} discendenti totali e ${personCount} persone assegnate. Usa force=true per eliminare comunque.`
+        }, { status: 409 })
+      }
+    }
+
+    d.prepare('UPDATE strutture_tns SET deleted_at = CURRENT_TIMESTAMP WHERE codice = ?').run(codice)
+    writeChangeLog('struttura_tns', codice, existing.nome ?? codice, 'DELETE', null, null, force ? 'forced' : null)
     return NextResponse.json({ success: true })
   } catch (e) {
     return NextResponse.json({ success: false, error: String(e) }, { status: 500 })

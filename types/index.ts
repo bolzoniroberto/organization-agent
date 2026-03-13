@@ -46,17 +46,7 @@ export interface Persona {
   extra_data: string | null
   deleted_at: string | null
   ultimo_aggiornamento?: string
-}
-
-export interface SupervisioneTimesheet {
-  cf_dipendente: string
-  cf_supervisore: string | null
-  data_inizio: string | null
-  data_fine: string | null
-}
-
-export interface RuoloTns {
-  cf_persona: string
+  // === Campi TNS (null se persona non ha dati TNS) ===
   codice_tns: string | null
   padre_tns: string | null
   livello_tns: string | null
@@ -74,7 +64,7 @@ export interface RuoloTns {
   sede_tns: string | null
   cdc_tns: string | null
   ruoli_oltrv: string | null
-  ruoli: string | null
+  ruoli_tns_desc: string | null
   segr_redaz: string | null
   segreteria_red_asst: string | null
   segretario_asst: string | null
@@ -83,6 +73,26 @@ export interface RuoloTns {
   ruoli_hr: string | null
   altri_ruoli: string | null
   gruppo_sind: string | null
+}
+
+export interface SupervisioneTimesheet {
+  cf_dipendente: string
+  cf_supervisore: string | null
+  data_inizio: string | null
+  data_fine: string | null
+}
+
+// RuoloTns: alias retrocompatibile — i dati ora vivono in persone
+export interface RuoloTns extends Pick<Persona,
+  'codice_tns' | 'padre_tns' | 'livello_tns' | 'titolare_tns' |
+  'tipo_approvatore' | 'codice_approvatore' | 'viaggiatore' | 'approvatore' |
+  'cassiere' | 'segretario' | 'controllore' | 'amministrazione' |
+  'visualizzatore' | 'escluso_tns' | 'sede_tns' | 'cdc_tns' |
+  'ruoli_oltrv' | 'ruoli_tns_desc' | 'segr_redaz' | 'segreteria_red_asst' |
+  'segretario_asst' | 'controllore_asst' | 'ruoli_afc' | 'ruoli_hr' |
+  'altri_ruoli' | 'gruppo_sind'
+> {
+  cf_persona: string
 }
 
 export interface ImportAnomalia {
@@ -110,6 +120,7 @@ export interface ImportReport {
   inserted: number
   updated: number
   skipped: number
+  varSaved: number
   errors: string[]
   anomalie: number
 }
@@ -166,12 +177,43 @@ export interface StrutturaTns {
   altri_ruoli: string | null
   gruppo_sind: string | null
   extra_data: string | null
+  deleted_at?: string | null
   created_at?: string
   updated_at?: string
+  person_count?: number
 }
 
-export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico' | 'data-cleaning' | 'db-live'
-export type ActiveView = 'posizioni' | 'persone-ts' | 'tns' | 'accordion' | 'nodi' | 'persone' | 'ruoli-tns' | 'strutture-tns' | 'variabili' | 'bulk' | 'enrich' | 'dc-duplicati' | 'dc-bulk-edit' | 'dc-merge'
+export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico' | 'data-cleaning' | 'db-live' | 'agenti' | 'accordion'
+export type ActiveView = 'posizioni' | 'persone-ts' | 'tns' | 'nodi' | 'persone' | 'ruoli-tns' | 'strutture-tns' | 'variabili' | 'bulk' | 'enrich' | 'dc-duplicati' | 'dc-bulk-edit' | 'dc-merge' | 'ordine-servizio' | 'accordion-uo' | 'accordion-tns' | 'accordion-responsabili'
+
+export type ProposalTipo =
+  | 'INSERT_PERSONA'
+  | 'UPDATE_PERSONA'
+  | 'DELETE_PERSONA'
+  | 'INSERT_NODO'
+  | 'UPDATE_NODO'
+  | 'REPARENT_NODO'
+  | 'UPDATE_RUOLO_TNS'
+  | 'INSERT_STRUTTURA_TNS'
+  | 'UPDATE_STRUTTURA_TNS'
+
+export interface OrdineServizioProposal {
+  id: string
+  tipo: ProposalTipo
+  label: string
+  rationale: string
+  confidence: 'high' | 'medium' | 'low'
+  entityType: 'persona' | 'nodo' | 'ruolo_tns' | 'struttura_tns'
+  entityId?: string
+  entityLabel?: string
+  data: Record<string, unknown>
+}
+
+export interface OrdineServizioAnalysis {
+  sommario: string
+  proposte: OrdineServizioProposal[]
+  avvertenze: string[]
+}
 
 export interface CleaningProposal {
   id: string
@@ -182,5 +224,5 @@ export interface CleaningProposal {
   records: Record<string, unknown>[]
   suggestedAction: 'merge' | 'delete' | 'update' | 'review'
 }
-export type OrgSubTab = 'posizioni' | 'persone' | 'tns' | 'accordion'
+export type OrgSubTab = 'posizioni' | 'persone' | 'tns'
 export type TipoNodo = 'STRUTTURA' | 'PERSONA' | 'ANOMALIA'

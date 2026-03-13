@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
 import type {
-  NodoOrganigramma, Persona, SupervisioneTimesheet, RuoloTns, StrutturaTns,
+  NodoOrganigramma, Persona, SupervisioneTimesheet, StrutturaTns,
   ActiveSection, ActiveView, VariabileOrgDefinizione, VariabileOrgValore
 } from '../types'
 
@@ -14,7 +14,6 @@ interface HRStore {
   nodi: NodoOrganigramma[]
   persone: Persona[]
   timesheet: SupervisioneTimesheet[]
-  tns: RuoloTns[]
   struttureTns: StrutturaTns[]
   variabiliDef: VariabileOrgDefinizione[]
   variabiliValori: VariabileOrgValore[]
@@ -30,8 +29,7 @@ interface HRStore {
   refreshNodi: (showDeleted?: boolean) => Promise<void>
   refreshPersone: (showDeleted?: boolean) => Promise<void>
   refreshTimesheet: () => Promise<void>
-  refreshTns: () => Promise<void>
-  refreshStruttureTns: () => Promise<void>
+  refreshStruttureTns: (showDeleted?: boolean) => Promise<void>
   refreshVariabiliDef: () => Promise<void>
   refreshVariabiliValori: () => Promise<void>
   refreshCounts: () => Promise<void>
@@ -47,7 +45,6 @@ export const useHRStore = create<HRStore>((set, get) => ({
   nodi: [],
   persone: [],
   timesheet: [],
-  tns: [],
   struttureTns: [],
   variabiliDef: [],
   variabiliValori: [],
@@ -78,13 +75,8 @@ export const useHRStore = create<HRStore>((set, get) => ({
     set({ timesheet })
   },
 
-  refreshTns: async () => {
-    const tns = await api.tns.list()
-    set({ tns })
-  },
-
-  refreshStruttureTns: async () => {
-    const struttureTns = await api.struttureTns.list()
+  refreshStruttureTns: async (showDeleted = false) => {
+    const struttureTns = await api.struttureTns.list(showDeleted)
     set({ struttureTns })
   },
 
@@ -106,17 +98,16 @@ export const useHRStore = create<HRStore>((set, get) => ({
   refreshAll: async () => {
     set({ loading: true })
     try {
-      const [nodi, persone, timesheet, tns, struttureTns, counts, variabiliDef, variabiliValori] = await Promise.all([
+      const [nodi, persone, timesheet, struttureTns, counts, variabiliDef, variabiliValori] = await Promise.all([
         api.org.list(false),
         api.persone.list(false),
         api.timesheet.list(),
-        api.tns.list(),
         api.struttureTns.list(),
         api.stats.counts(),
         api.variabili.listDefinizioni(),
         api.variabili.listValori(),
       ])
-      set({ nodi, persone, timesheet, tns, struttureTns, counts, variabiliDef, variabiliValori })
+      set({ nodi, persone, timesheet, struttureTns, counts, variabiliDef, variabiliValori })
     } finally {
       set({ loading: false })
     }

@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, writeChangeLog } from '@/lib/db'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const showDeleted = req.nextUrl.searchParams.get('showDeleted') === 'true'
     const d = db()
-    const rows = d.prepare('SELECT * FROM strutture_tns ORDER BY codice').all()
+    const whereClause = showDeleted ? '' : 'WHERE strutture_tns.deleted_at IS NULL'
+    const rows = d.prepare(`
+      SELECT strutture_tns.*,
+        (SELECT COUNT(*) FROM persone WHERE codice_tns = strutture_tns.codice AND persone.deleted_at IS NULL) as person_count
+      FROM strutture_tns
+      ${whereClause}
+      ORDER BY codice
+    `).all()
     return NextResponse.json(rows)
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })

@@ -25,7 +25,7 @@ export default function ImportEnrichView() {
   const [dryRunResult, setDryRunResult] = useState<null | { toInsert: number; toUpdate: number; toSkip: number; toVarUpdate: number; anomalie: unknown[]; diff: unknown[] }>(null)
   const [dryRunLoading, setDryRunLoading] = useState(false)
   const [executing, setExecuting] = useState(false)
-  const [importDone, setImportDone] = useState<{ inserted: number; updated: number; errors: string[] } | null>(null)
+  const [importDone, setImportDone] = useState<{ inserted: number; updated: number; varSaved: number; errors: string[] } | null>(null)
   const { showToast, refreshAll } = useHRStore()
 
   const loadPreview = async () => {
@@ -67,8 +67,8 @@ export default function ImportEnrichView() {
     setExecuting(true)
     try {
       const result = await api.import.execute({ file, entity, mode, mapping, sheetName, keyField: keyField || undefined })
-      setImportDone({ inserted: result.inserted, updated: result.updated, errors: result.errors })
-      showToast(`Arricchimento completato: ${result.inserted} inseriti, ${result.updated} aggiornati`, 'success')
+      setImportDone({ inserted: result.inserted, updated: result.updated, varSaved: result.varSaved, errors: result.errors })
+      showToast(`Arricchimento completato: ${result.inserted} inseriti, ${result.updated} aggiornati, ${result.varSaved} variabili salvate`, 'success')
       await refreshAll()
     } catch (e) {
       showToast(String(e), 'error')
@@ -85,6 +85,7 @@ export default function ImportEnrichView() {
         <div className="flex gap-6 text-center">
           <div><div className="text-2xl font-bold text-green-300">{importDone.inserted}</div><div className="text-xs text-slate-500">Inseriti</div></div>
           <div><div className="text-2xl font-bold text-blue-300">{importDone.updated}</div><div className="text-xs text-slate-500">Aggiornati</div></div>
+          {importDone.varSaved > 0 && <div><div className="text-2xl font-bold text-indigo-300">{importDone.varSaved}</div><div className="text-xs text-slate-500">Variabili salvate</div></div>}
         </div>
         {importDone.errors.length > 0 && (
           <div className="bg-red-900/20 border border-red-700 rounded-lg p-4 max-w-md w-full">

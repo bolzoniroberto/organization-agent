@@ -12,6 +12,21 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cf:
   }
 }
 
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ cf: string }> }) {
+  try {
+    const { cf } = await params
+    const body = await req.json() as { cf_supervisore: string | null }
+    const d = db()
+    const existing = d.prepare('SELECT * FROM supervisioni_timesheet WHERE cf_dipendente = ?').get(cf) as Record<string, unknown> | undefined
+    if (!existing) return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
+    d.prepare('UPDATE supervisioni_timesheet SET cf_supervisore = ? WHERE cf_dipendente = ?').run(body.cf_supervisore, cf)
+    writeChangeLog('timesheet', cf, null, 'UPDATE', 'cf_supervisore', String(existing.cf_supervisore ?? ''), String(body.cf_supervisore ?? ''))
+    return NextResponse.json({ success: true })
+  } catch (e) {
+    return NextResponse.json({ success: false, error: String(e) }, { status: 500 })
+  }
+}
+
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ cf: string }> }) {
   try {
     const { cf } = await params

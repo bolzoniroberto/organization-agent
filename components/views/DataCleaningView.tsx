@@ -4,7 +4,7 @@ import { AgGridReact } from 'ag-grid-react'
 import type { ColDef, SelectionChangedEvent } from 'ag-grid-community'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-alpine.css'
-import { RefreshCw, ChevronDown, ChevronRight, AlertTriangle, AlertCircle, Info } from 'lucide-react'
+import { RefreshCw, ChevronDown, ChevronRight, AlertTriangle, AlertCircle, Info, Trash2 } from 'lucide-react'
 import { useHRStore } from '@/store/useHRStore'
 import { api } from '@/lib/api'
 import type { CleaningProposal } from '@/types'
@@ -253,102 +253,201 @@ function QuickMergeModal({ proposal, onClose, onDone }: {
   )
 }
 
-// ─── Bulk edit column configs ──────────────────────────────────────────────
+// ─── Bulk edit — campi modificabili per entità ─────────────────────────────
 const BULK_FIELDS: Record<string, { value: string; label: string }[]> = {
   persone: [
-    { value: 'area', label: 'Area' },
-    { value: 'sotto_area', label: 'Sotto Area' },
-    { value: 'societa', label: 'Società' },
-    { value: 'sede', label: 'Sede' },
-    { value: 'tipo_contratto', label: 'Tipo Contratto' },
-    { value: 'qualifica', label: 'Qualifica' },
-    { value: 'livello', label: 'Livello' },
-    { value: 'modalita_presenze', label: 'Modalità Presenze' },
-    { value: 'cdc_amministrativo', label: 'CdC Amm.' },
-    { value: 'email', label: 'Email' },
+    { value: 'cognome', label: 'Cognome' }, { value: 'nome', label: 'Nome' },
+    { value: 'email', label: 'Email' }, { value: 'sesso', label: 'Sesso' },
+    { value: 'societa', label: 'Società' }, { value: 'area', label: 'Area' },
+    { value: 'sotto_area', label: 'Sotto Area' }, { value: 'sede', label: 'Sede' },
+    { value: 'cdc_amministrativo', label: 'CdC Amm.' }, { value: 'tipo_contratto', label: 'Tipo Contratto' },
+    { value: 'qualifica', label: 'Qualifica' }, { value: 'livello', label: 'Livello' },
+    { value: 'modalita_presenze', label: 'Modalità Presenze' }, { value: 'part_time', label: 'Part Time' },
+    { value: 'matricola', label: 'Matricola' }, { value: 'data_assunzione', label: 'Data Assunzione' },
+    { value: 'data_fine_rapporto', label: 'Data Fine Rapporto' },
   ],
   nodi: [
-    { value: 'nome_uo', label: 'Nome UO' },
-    { value: 'funzione', label: 'Funzione' },
-    { value: 'processo', label: 'Processo' },
-    { value: 'sede', label: 'Sede' },
-    { value: 'societa_org', label: 'Società Org' },
-    { value: 'tipo_collab', label: 'Tipo Collab' },
-    { value: 'job_title', label: 'Job Title' },
-    { value: 'centro_costo', label: 'Centro Costo' },
+    { value: 'nome_uo', label: 'Nome UO' }, { value: 'funzione', label: 'Funzione' },
+    { value: 'processo', label: 'Processo' }, { value: 'sede', label: 'Sede' },
+    { value: 'societa_org', label: 'Società Org' }, { value: 'tipo_collab', label: 'Tipo Collab' },
+    { value: 'job_title', label: 'Job Title' }, { value: 'centro_costo', label: 'Centro Costo' },
+    { value: 'tipo_nodo', label: 'Tipo Nodo' },
   ],
   'strutture-tns': [
-    { value: 'nome', label: 'Nome' },
-    { value: 'livello', label: 'Livello' },
-    { value: 'tipo', label: 'Tipo' },
-    { value: 'descrizione', label: 'Descrizione' },
-    { value: 'cdc', label: 'CdC' },
-    { value: 'sede_tns', label: 'Sede TNS' },
+    { value: 'nome', label: 'Nome' }, { value: 'livello', label: 'Livello' },
+    { value: 'tipo', label: 'Tipo' }, { value: 'descrizione', label: 'Descrizione' },
+    { value: 'cdc', label: 'CdC' }, { value: 'sede_tns', label: 'Sede TNS' },
+    { value: 'titolare', label: 'Titolare' }, { value: 'cf_titolare', label: 'CF Titolare' },
   ],
+}
+
+// ─── Colonne grid complete per entità ──────────────────────────────────────
+const BASE_COLS: Record<string, ColDef[]> = {
+  persone: [
+    { field: 'cf', headerName: 'CF', width: 150, pinned: 'left', checkboxSelection: true, headerCheckboxSelection: true, headerCheckboxSelectionFilteredOnly: true },
+    { field: 'cognome', headerName: 'Cognome', width: 140 },
+    { field: 'nome', headerName: 'Nome', width: 120 },
+    { field: 'data_nascita', headerName: 'Data Nasc.', width: 110 },
+    { field: 'sesso', headerName: 'Sesso', width: 70 },
+    { field: 'email', headerName: 'Email', width: 200 },
+    { field: 'societa', headerName: 'Società', width: 130 },
+    { field: 'area', headerName: 'Area', width: 130 },
+    { field: 'sotto_area', headerName: 'Sotto Area', width: 130 },
+    { field: 'cdc_amministrativo', headerName: 'CdC Amm.', width: 120 },
+    { field: 'sede', headerName: 'Sede', width: 110 },
+    { field: 'data_assunzione', headerName: 'Data Ass.', width: 110 },
+    { field: 'data_fine_rapporto', headerName: 'Fine Rapp.', width: 110 },
+    { field: 'tipo_contratto', headerName: 'Tipo Contr.', width: 120 },
+    { field: 'qualifica', headerName: 'Qualifica', width: 140 },
+    { field: 'livello', headerName: 'Livello', width: 80 },
+    { field: 'modalita_presenze', headerName: 'Mod. Presenze', width: 130 },
+    { field: 'part_time', headerName: 'Part Time', width: 90 },
+    { field: 'matricola', headerName: 'Matricola', width: 100 },
+    { field: 'codice_tns', headerName: 'Cod. TNS', width: 160 },
+    { field: 'padre_tns', headerName: 'Padre TNS', width: 140 },
+    { field: 'livello_tns', headerName: 'Liv. TNS', width: 90 },
+    { field: 'titolare_tns', headerName: 'Titolare TNS', width: 130 },
+    { field: 'sede_tns', headerName: 'Sede TNS', width: 110 },
+    { field: 'viaggiatore', headerName: 'Viaggiatore', width: 100 },
+    { field: 'approvatore', headerName: 'Approvatore', width: 100 },
+    { field: 'cassiere', headerName: 'Cassiere', width: 90 },
+    { field: 'segretario', headerName: 'Segretario', width: 100 },
+    { field: 'controllore', headerName: 'Controllore', width: 100 },
+    { field: 'ruoli_tns_desc', headerName: 'Ruoli TNS', width: 140 },
+    { field: 'gruppo_sind', headerName: 'Gruppo Sind.', width: 120 },
+  ],
+  nodi: [
+    { field: 'id', headerName: 'ID', width: 200, pinned: 'left', checkboxSelection: true, headerCheckboxSelection: true, headerCheckboxSelectionFilteredOnly: true },
+    { field: 'nome_uo', headerName: 'Nome UO', width: 200 },
+    { field: 'tipo_nodo', headerName: 'Tipo', width: 100 },
+    { field: 'cf_persona', headerName: 'CF Persona', width: 150 },
+    { field: 'reports_to', headerName: 'Reports To', width: 200 },
+    { field: 'centro_costo', headerName: 'CdC', width: 130 },
+    { field: 'funzione', headerName: 'Funzione', width: 140 },
+    { field: 'processo', headerName: 'Processo', width: 140 },
+    { field: 'sede', headerName: 'Sede', width: 110 },
+    { field: 'societa_org', headerName: 'Società Org', width: 130 },
+    { field: 'tipo_collab', headerName: 'Tipo Collab', width: 120 },
+    { field: 'job_title', headerName: 'Job Title', width: 150 },
+  ],
+  'strutture-tns': [
+    { field: 'codice', headerName: 'Codice', width: 150, pinned: 'left', checkboxSelection: true, headerCheckboxSelection: true, headerCheckboxSelectionFilteredOnly: true },
+    { field: 'nome', headerName: 'Nome', width: 200 },
+    { field: 'padre', headerName: 'Padre', width: 150 },
+    { field: 'livello', headerName: 'Livello', width: 80 },
+    { field: 'tipo', headerName: 'Tipo', width: 100 },
+    { field: 'attivo', headerName: 'Attivo', width: 70 },
+    { field: 'cdc', headerName: 'CdC', width: 110 },
+    { field: 'titolare', headerName: 'Titolare', width: 140 },
+    { field: 'cf_titolare', headerName: 'CF Titolare', width: 150 },
+    { field: 'sede_tns', headerName: 'Sede TNS', width: 110 },
+    { field: 'descrizione', headerName: 'Descrizione', width: 200 },
+  ],
+}
+
+// ─── Var target mapping ─────────────────────────────────────────────────────
+const ENTITY_VAR_TARGET: Record<string, string> = {
+  persone: 'persona',
+  nodi: 'nodo',
+  'strutture-tns': 'struttura_tns',
 }
 
 // ─── Bulk Edit sub-tab ─────────────────────────────────────────────────────
 function BulkEditTab() {
-  const { persone, nodi, struttureTns, showToast, refreshPersone, refreshNodi, refreshStruttureTns } = useHRStore()
+  const { persone, nodi, struttureTns, variabiliDef, variabiliValori, showToast, refreshPersone, refreshNodi, refreshStruttureTns, refreshVariabiliValori } = useHRStore()
   const [entityType, setEntityType] = useState<'persone' | 'nodi' | 'strutture-tns'>('persone')
   const [selected, setSelected] = useState<string[]>([])
   const [field, setField] = useState('')
   const [value, setValue] = useState('')
   const [loading, setLoading] = useState(false)
+  const [applyConfirm, setApplyConfirm] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
   const gridRef = useRef<AgGridReact>(null)
 
-  const rowData = entityType === 'persone' ? persone : entityType === 'nodi' ? nodi : struttureTns
-  const fields = BULK_FIELDS[entityType] ?? []
+  const varTarget = ENTITY_VAR_TARGET[entityType]
+  const compatibleVars = variabiliDef.filter(v => v.target === 'tutti' || v.target === varTarget)
 
-  // Reset field when entity changes
-  useEffect(() => { setField(''); setSelected([]) }, [entityType])
+  const baseRows = entityType === 'persone' ? persone.filter(p => !p.deleted_at) : entityType === 'nodi' ? nodi.filter(n => !n.deleted_at) : struttureTns.filter(s => !s.deleted_at)
+  const idField = entityType === 'persone' ? 'cf' : entityType === 'nodi' ? 'id' : 'codice'
+
+  const rowData = React.useMemo(() => {
+    const vByKey = new Map<string, Record<string, string>>()
+    for (const v of variabiliValori) {
+      const key = `${v.entita_tipo}::${v.entita_id}`
+      if (!vByKey.has(key)) vByKey.set(key, {})
+      vByKey.get(key)![`var_${v.var_id}`] = v.valore ?? ''
+    }
+    const tipoMap: Record<string, string> = { persone: 'persona', nodi: 'nodo_org', 'strutture-tns': 'struttura_tns' }
+    const tipo = tipoMap[entityType]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (baseRows as any[]).map(r => ({ ...r, ...(vByKey.get(`${tipo}::${String(r[idField])}`) ?? {}) }))
+  }, [baseRows, variabiliValori, entityType, idField])
+
+  const editableFields = [
+    ...BULK_FIELDS[entityType] ?? [],
+    ...compatibleVars.map(v => ({ value: `var_${v.id}`, label: v.label })),
+  ]
 
   const colDefs = React.useMemo((): ColDef[] => {
-    if (entityType === 'persone') return [
-      { field: 'cf', headerName: 'CF', width: 140 },
-      { field: 'cognome', headerName: 'Cognome', width: 140 },
-      { field: 'nome', headerName: 'Nome', width: 120 },
-      { field: 'area', headerName: 'Area', width: 130 },
-      { field: 'societa', headerName: 'Società', width: 130 },
-      { field: 'sede', headerName: 'Sede', width: 110 },
-      { field: 'qualifica', headerName: 'Qualifica', width: 130 },
-    ]
-    if (entityType === 'nodi') return [
-      { field: 'id', headerName: 'ID', width: 200 },
-      { field: 'nome_uo', headerName: 'Nome UO', flex: 1 },
-      { field: 'funzione', headerName: 'Funzione', width: 140 },
-      { field: 'sede', headerName: 'Sede', width: 110 },
-      { field: 'societa_org', headerName: 'Società', width: 130 },
-    ]
-    return [
-      { field: 'codice', headerName: 'Codice', width: 130 },
-      { field: 'nome', headerName: 'Nome', flex: 1 },
-      { field: 'livello', headerName: 'Livello', width: 100 },
-      { field: 'tipo', headerName: 'Tipo', width: 110 },
-    ]
-  }, [entityType])
+    const base = BASE_COLS[entityType] ?? []
+    const varCols: ColDef[] = compatibleVars.map(v => ({
+      field: `var_${v.id}`,
+      headerName: `⊕ ${v.label}`,
+      width: 140,
+    }))
+    return [...base, ...varCols]
+  }, [entityType, compatibleVars])
 
-  const getRowId = useCallback((params: { data: Record<string, unknown> }) => {
-    if (entityType === 'persone') return String(params.data.cf)
-    if (entityType === 'nodi') return String(params.data.id)
-    return String(params.data.codice)
-  }, [entityType])
+  useEffect(() => { setField(''); setValue(''); setSelected([]) }, [entityType])
+
+  const getRowId = useCallback((params: { data: Record<string, unknown> }) => String(params.data[idField]), [idField])
 
   const onSelectionChanged = useCallback((e: SelectionChangedEvent) => {
     const rows = e.api.getSelectedRows() as Record<string, unknown>[]
-    setSelected(rows.map(r => entityType === 'persone' ? String(r.cf) : entityType === 'nodi' ? String(r.id) : String(r.codice)))
-  }, [entityType])
+    setSelected(rows.map(r => String(r[idField])))
+  }, [idField])
+
+  const doRefresh = useCallback(async (fieldKey: string) => {
+    if (fieldKey.startsWith('var_')) await refreshVariabiliValori()
+    else if (entityType === 'persone') await refreshPersone()
+    else if (entityType === 'nodi') await refreshNodi()
+    else await refreshStruttureTns()
+  }, [entityType, refreshPersone, refreshNodi, refreshStruttureTns, refreshVariabiliValori])
 
   const handleApply = async () => {
-    if (!field || selected.length === 0) return
-    if (!confirm(`Aggiornare "${field}" su ${selected.length} record?`)) return
+    setApplyConfirm(false)
     setLoading(true)
     try {
       const res = await api.dataCleaning.bulkUpdate({ entityType, ids: selected, field, value: value || null })
+      await doRefresh(field)
+      showToast(`${res.updated} record aggiornati${res.errors.length > 0 ? ` (${res.errors.length} errori)` : ''}`, res.errors.length > 0 ? 'warning' : 'success')
+      gridRef.current?.api?.deselectAll()
+      setSelected([])
+    } catch (e) {
+      showToast(String(e), 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    setDeleteConfirm(false)
+    setLoading(true)
+    let ok = 0, fail = 0
+    try {
+      for (const id of selected) {
+        try {
+          let r: { success: boolean }
+          if (entityType === 'persone') r = await api.persone.delete(id)
+          else if (entityType === 'nodi') r = await api.org.delete(id)
+          else r = await api.struttureTns.delete(id, true)
+          if (r.success) ok++; else fail++
+        } catch { fail++ }
+      }
       if (entityType === 'persone') await refreshPersone()
       else if (entityType === 'nodi') await refreshNodi()
       else await refreshStruttureTns()
-      showToast(`${res.updated} record aggiornati${res.errors.length > 0 ? ` (${res.errors.length} errori)` : ''}`, res.errors.length > 0 ? 'warning' : 'success')
+      showToast(`${ok} eliminati${fail > 0 ? `, ${fail} errori` : ''}`, fail > 0 ? 'warning' : 'success')
       gridRef.current?.api?.deselectAll()
       setSelected([])
     } catch (e) {
@@ -364,43 +463,42 @@ function BulkEditTab() {
       <div className="flex items-center gap-3 px-4 py-2 border-b border-slate-700 flex-none flex-wrap">
         <div className="flex items-center gap-1.5">
           {(['persone', 'nodi', 'strutture-tns'] as const).map(e => (
-            <button
-              key={e}
-              onClick={() => setEntityType(e)}
-              className={[
-                'px-3 py-1 text-xs rounded transition-colors',
-                entityType === e ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-              ].join(' ')}
-            >
+            <button key={e} onClick={() => setEntityType(e)}
+              className={['px-3 py-1 text-xs rounded transition-colors', entityType === e ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'].join(' ')}>
               {e === 'persone' ? 'Persone' : e === 'nodi' ? 'Nodi' : 'Strutture TNS'}
             </button>
           ))}
         </div>
+
+        <span className="text-xs text-slate-600">{rowData.length} record</span>
+
         <div className="flex-1" />
+
         {selected.length > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400">{selected.length} selezionati</span>
-            <select
-              value={field}
-              onChange={e => setField(e.target.value)}
-              className="bg-slate-700 border border-slate-600 text-slate-300 text-xs px-2 py-1 rounded"
-            >
+            <span className="text-xs text-indigo-400 font-medium">{selected.length} selezionati</span>
+
+            {/* Modifica massiva */}
+            <select value={field} onChange={e => setField(e.target.value)}
+              className="bg-slate-700 border border-slate-600 text-slate-300 text-xs px-2 py-1 rounded">
               <option value="">— campo —</option>
-              {fields.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              {editableFields.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
             </select>
-            <input
-              type="text"
-              placeholder="Nuovo valore"
-              value={value}
-              onChange={e => setValue(e.target.value)}
-              className="bg-slate-700 border border-slate-600 text-slate-300 text-xs px-2 py-1 rounded w-40"
-            />
-            <button
-              onClick={handleApply}
-              disabled={!field || loading}
-              className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded transition-colors disabled:opacity-50"
-            >
+            <input type="text" placeholder="Nuovo valore" value={value} onChange={e => setValue(e.target.value)}
+              className="bg-slate-700 border border-slate-600 text-slate-300 text-xs px-2 py-1 rounded w-36" />
+            <button onClick={() => setApplyConfirm(true)} disabled={!field || loading}
+              className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded transition-colors disabled:opacity-50">
               {loading ? 'Applico…' : `Applica a ${selected.length}`}
+            </button>
+
+            {/* Separatore */}
+            <span className="w-px h-5 bg-slate-700" />
+
+            {/* Elimina massivo */}
+            <button onClick={() => setDeleteConfirm(true)} disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1 text-xs bg-red-900/40 hover:bg-red-900/70 text-red-300 border border-red-800 rounded transition-colors disabled:opacity-50">
+              <Trash2 className="w-3 h-3" />
+              Elimina {selected.length}
             </button>
           </div>
         )}
@@ -421,6 +519,46 @@ function BulkEditTab() {
           rowHeight={28}
         />
       </div>
+
+      {/* Conferma modifica massiva */}
+      {applyConfirm && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
+          <div className="bg-slate-800 border border-slate-600 rounded-lg p-5 max-w-sm w-full shadow-xl">
+            <h3 className="text-sm font-semibold text-slate-200 mb-2">Conferma modifica massiva</h3>
+            <p className="text-sm text-slate-400 mb-1">
+              Impostare <span className="font-mono text-slate-200 bg-slate-700 px-1 rounded">{editableFields.find(f => f.value === field)?.label ?? field}</span> a{' '}
+              <span className="font-mono text-indigo-300">{value || '(vuoto)'}</span>
+            </p>
+            <p className="text-sm text-slate-400 mb-4">su <span className="text-slate-100 font-medium">{selected.length} record</span>?</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setApplyConfirm(false)} className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 border border-slate-600 rounded-md">Annulla</button>
+              <button onClick={handleApply} className="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-md">Applica</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Conferma eliminazione massiva */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
+          <div className="bg-slate-800 border border-red-800 rounded-lg p-5 max-w-sm w-full shadow-xl">
+            <h3 className="text-sm font-semibold text-red-300 mb-2">Conferma eliminazione</h3>
+            <p className="text-sm text-slate-400 mb-1">
+              Stai per eliminare <span className="text-slate-100 font-medium">{selected.length} record</span> di tipo{' '}
+              <span className="text-slate-100 font-medium">{entityType}</span>.
+            </p>
+            <p className="text-xs text-slate-500 mb-4">
+              {entityType !== 'strutture-tns'
+                ? 'I record saranno marcati come eliminati (soft delete) e non appariranno nelle viste.'
+                : 'Le strutture verranno eliminate anche se hanno figli o persone assegnate.'}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteConfirm(false)} className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 border border-slate-600 rounded-md">Annulla</button>
+              <button onClick={handleBulkDelete} className="px-3 py-1.5 text-sm bg-red-700 hover:bg-red-600 text-white rounded-md">Elimina</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

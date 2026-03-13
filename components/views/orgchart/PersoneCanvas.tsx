@@ -9,8 +9,9 @@ import {
 import '@xyflow/react/dist/style.css'
 import { Search, X } from 'lucide-react'
 import { useHRStore } from '@/store/useHRStore'
+import { api } from '@/lib/api'
 import type { SupervisioneTimesheet, Persona } from '@/types'
-import OrgNode, { type OrgNodeData } from '@/components/orgchart/OrgNode'
+import OrgNode from '@/components/orgchart/OrgNode'
 import NodeContextMenu from '@/components/orgchart/NodeContextMenu'
 import RecordDrawer from '@/components/shared/RecordDrawer'
 import {
@@ -26,6 +27,18 @@ const MAX_ITER = 5
 type ColorMode = 'none' | 'societa' | 'area'
 type ColorScheme = { border: string; bg: string }
 type NodeBox = { x: number; y: number; w: number; h: number }
+
+const NODE_FIELD_OPTIONS = [
+  { value: '', label: '— nessuno —' },
+  { value: 'nome_completo', label: 'Nome Cognome' },
+  { value: 'qualifica', label: 'Qualifica' },
+  { value: 'area', label: 'Area' },
+  { value: 'societa', label: 'Società' },
+  { value: 'sede', label: 'Sede' },
+  { value: 'tipo_contratto', label: 'Tipo Contratto' },
+  { value: 'email', label: 'Email' },
+  { value: 'cf', label: 'CF' },
+]
 
 function buildColorMap(
   timesheet: SupervisioneTimesheet[],
@@ -68,7 +81,7 @@ function OrgEdge({ id, sourceX, sourceY, targetX, targetY, data, style }: EdgePr
 const EDGE_TYPES = { orgEdge: OrgEdge }
 
 export default function PersoneCanvas() {
-  const { timesheet, persone, refreshAll } = useHRStore()
+  const { timesheet, persone, refreshAll, showToast } = useHRStore()
 
   const personaMap = useMemo(() => {
     const m = new Map<string, Persona>()
@@ -76,10 +89,17 @@ export default function PersoneCanvas() {
     return m
   }, [persone])
 
-  const getLabel = (cf: string): string => {
+  const getPersonaField = useCallback((cf: string, field: string): string | null => {
+    const p = personaMap.get(cf)
+    if (!p) return null
+    if (field === 'nome_completo') return `${p.cognome ?? ''} ${p.nome ?? ''}`.trim() || null
+    return (p as unknown as Record<string, unknown>)[field] as string | null
+  }, [personaMap])
+
+  const getLabel = useCallback((cf: string): string => {
     const p = personaMap.get(cf)
     return p ? `${p.cognome ?? ''} ${p.nome ?? ''}`.trim() || cf : cf
-  }
+  }, [personaMap])
 
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set())
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -88,6 +108,7 @@ export default function PersoneCanvas() {
   const [searchResults, setSearchResults] = useState<SupervisioneTimesheet[]>([])
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null)
   const [colorMode, setColorMode] = useState<ColorMode>('none')
+  const [nodeFields, setNodeFields] = useState<[string, string, string]>(['nome_completo', 'qualifica', 'area'])
   const [focusedNode, setFocusedNode] = useState<string | null>(null)
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
   const prevVisibleIdsRef = useRef<Set<string>>(new Set())
@@ -97,6 +118,14 @@ export default function PersoneCanvas() {
   const { drillPath, drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
   const initializedRef = useRef(false)
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
+  const [dragEditMode, setDragEditMode] = useState(false)
+  const [dragTargetId, setDragTargetId] = useState<string | null>(null)
+  const [dragResetKey, setDragResetKey] = useState(0)
+  const [pendingReparent, setPendingReparent] = useState<{
+    nodeId: string; nodeLabel: string; newParentId: string; newParentLabel: string
+  } | null>(null)
+  const [reparenting, setReparenting] = useState(false)
+  const nodesRef = useRef<Node[]>([])
 
   useEffect(() => {
     if (!initializedRef.current && timesheet.length > 0) {
@@ -124,7 +153,6 @@ export default function PersoneCanvas() {
     return timesheet.filter(t => visibleIds.has(t.cf_dipendente))
   }, [timesheet, drillRootId, drillMode])
 
-  // Real child count from full dataset
   const childCountMap = useMemo(() => {
     const map = new Map<string, number>()
     timesheet.forEach(t => { if (t.cf_supervisore) map.set(t.cf_supervisore, (map.get(t.cf_supervisore) ?? 0) + 1) })
@@ -148,7 +176,6 @@ export default function PersoneCanvas() {
     const f = filterTree(root)
     layoutTree(f, 0, cfg)
 
-    const TARGET_RATIO = 4.0
     let iter = 0
     let bbox = getBoundingBox(f)
     let ratio = (bbox.maxX - bbox.minX) / Math.max(1, bbox.maxY - bbox.minY)
@@ -173,7 +200,7 @@ export default function PersoneCanvas() {
   }, [visibleTree.length, zoom])
 
   const colorMap = useMemo(() => buildColorMap(timesheet, colorMode, personaMap), [timesheet, colorMode, personaMap])
-  // Semantic: active = manager (ha supervisees), empty = foglia
+
   const semanticStatusMap = useMemo(() => {
     const supervisors = new Set(timesheet.map(t => t.cf_supervisore).filter(Boolean))
     const out = new Map<string, 'active' | 'indirect' | 'empty'>()
@@ -202,6 +229,60 @@ export default function PersoneCanvas() {
   }, [hoveredNode, timesheet])
 
   const activePath = drillRootId ? null : (focusPath ?? hoverPath)
+
+  // ── Drag-to-reparent ───────────────────────────────────────────────────────
+  const isDescendant = useCallback((ancestorId: string, checkId: string): boolean => {
+    const children = timesheet.filter(t => t.cf_supervisore === ancestorId)
+    return children.some(c => c.cf_dipendente === checkId || isDescendant(c.cf_dipendente, checkId))
+  }, [timesheet])
+
+  const handleNodeDrag = useCallback((_: React.MouseEvent, draggedNode: Node) => {
+    const { x, y } = draggedNode.position
+    const W = compactMode ? 160 : 220
+    const H = compactMode ? 50 : 70
+    const cx = x + W / 2, cy = y + H / 2
+    const currentParent = timesheet.find(t => t.cf_dipendente === draggedNode.id)?.cf_supervisore
+    const target = nodesRef.current.find(n => {
+      if (n.id === draggedNode.id || n.type !== 'orgNode') return false
+      if (n.id === currentParent) return false
+      if (isDescendant(draggedNode.id, n.id)) return false
+      const nx = n.position.x, ny = n.position.y
+      return cx >= nx && cx <= nx + W && cy >= ny && cy <= ny + H
+    })
+    setDragTargetId(target?.id ?? null)
+  }, [timesheet, compactMode, isDescendant])
+
+  const handleNodeDragStop = useCallback((_: React.MouseEvent, draggedNode: Node) => {
+    if (dragTargetId) {
+      setPendingReparent({
+        nodeId: draggedNode.id,
+        nodeLabel: getLabel(draggedNode.id),
+        newParentId: dragTargetId,
+        newParentLabel: getLabel(dragTargetId),
+      })
+    }
+    setDragTargetId(null)
+    setDragResetKey(k => k + 1)
+  }, [dragTargetId, getLabel])
+
+  const handleConfirmReparent = useCallback(async () => {
+    if (!pendingReparent) return
+    setReparenting(true)
+    try {
+      const r = await api.timesheet.update(pendingReparent.nodeId, { cf_supervisore: pendingReparent.newParentId })
+      if (r.success) {
+        showToast(`${pendingReparent.nodeLabel} → ${pendingReparent.newParentLabel}`, 'success')
+        await refreshAll()
+      } else {
+        showToast(r.error ?? 'Errore', 'error')
+      }
+    } catch (e) {
+      showToast(String(e), 'error')
+    } finally {
+      setReparenting(false)
+      setPendingReparent(null)
+    }
+  }, [pendingReparent, showToast, refreshAll])
 
   const openDrawer = useCallback((cf: string) => {
     const p = personaMap.get(cf) ?? null
@@ -234,8 +315,6 @@ export default function PersoneCanvas() {
       const cf = tn.id
       const totalChildren = childCountMap.get(cf) ?? 0
       const isCollapsed = collapsedSet.has(cf)
-      const isOverflowed = false
-      const hiddenCount = 0
 
       const p = personaMap.get(cf)
       const colorVal = colorMode === 'societa' ? (p?.societa ?? '') : (p?.area ?? '')
@@ -253,19 +332,23 @@ export default function PersoneCanvas() {
         entranceDelay = sibIdx * 40
       }
 
+      const label = getPersonaField(cf, nodeFields[0] || 'nome_completo') ?? cf
+      const sublabel = nodeFields[1] ? getPersonaField(cf, nodeFields[1]) : undefined
+      const extraDetail = nodeFields[2] ? getPersonaField(cf, nodeFields[2]) : undefined
+
       return {
         id: cf,
         type: 'orgNode',
         position: { x: tn.x, y: tn.y },
         data: {
           id: cf,
-          label: getLabel(cf),
-          sublabel: p?.qualifica ?? p?.area,
-          extraDetail: p?.societa,
+          label,
+          sublabel,
+          extraDetail,
           tipo: 'TIMESHEET' as const,
           collapsed: isCollapsed, hasChildren: totalChildren > 0,
           childrenCount: totalChildren, depth: tn.depth,
-          isOverflowed, hiddenCount, colorScheme,
+          isOverflowed: false, hiddenCount: 0, colorScheme,
           semanticStatus: semanticStatusMap.get(cf),
           entranceDelay, compact: compactMode,
           onExpand: () => toggleCollapse(cf),
@@ -287,11 +370,21 @@ export default function PersoneCanvas() {
     return { nodes: treeNodes as Node[], edges: treeEdges }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleTree, collapsedSet, childCountMap, highlightedNode,
-      toggleCollapse, colorMode, colorMap, semanticStatusMap, activePath, compactMode, openDrawer, personaMap])
+      toggleCollapse, colorMode, colorMap, semanticStatusMap, activePath, compactMode, openDrawer, personaMap, nodeFields, getPersonaField])
 
   useEffect(() => {
     prevVisibleIdsRef.current = new Set(nodes.filter(n => n.type === 'orgNode').map(n => n.id))
+    nodesRef.current = nodes
   }, [nodes])
+
+  const derivedNodes = useMemo(() => {
+    if (!dragTargetId && dragResetKey === 0) return nodes
+    return nodes.map(n => n.id === dragTargetId
+      ? { ...n, className: 'ring-2 ring-green-400 rounded-lg' }
+      : n
+    )
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, dragTargetId, dragResetKey])
 
   useEffect(() => {
     if (nodes.length > 0) setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 100)
@@ -310,8 +403,7 @@ export default function PersoneCanvas() {
       const label = getLabel(t.cf_dipendente).toLowerCase()
       return label.includes(lower) || t.cf_dipendente.toLowerCase().includes(lower)
     }).slice(0, 8))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, timesheet])
+  }, [search, timesheet, getLabel])
 
   const handleSelectSearchResult = useCallback((t: SupervisioneTimesheet) => {
     setSearch(getLabel(t.cf_dipendente))
@@ -320,30 +412,35 @@ export default function PersoneCanvas() {
     const node = nodes.find(nd => nd.id === t.cf_dipendente)
     if (node) setCenter(node.position.x + 110, node.position.y + 45, { duration: 600, zoom: 1 })
     setTimeout(() => setHighlightedNode(null), 2000)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, setCenter])
-
-  const handleNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
-    if (node.type !== 'orgNode') return
-    setFocusedNode(node.id)
-    setContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
-  }, [])
+  }, [nodes, setCenter, getLabel])
 
   const handleFocusExpand = useCallback((nodeId: string) => {
     drillInto(nodeId, getLabel(nodeId), 'expand', () => {
       setCollapsedSet(new Set())
       setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drillInto, fitView, personaMap])
+  }, [drillInto, fitView, getLabel])
 
   const handleDrillIn = useCallback((nodeId: string) => {
     drillInto(nodeId, getLabel(nodeId), 'navigate', () => {
       setCollapsedSet(new Set())
       setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drillInto, fitView, personaMap])
+  }, [drillInto, fitView, getLabel])
+
+  const handleNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
+    if (node.type !== 'orgNode') return
+    setFocusedNode(node.id)
+    const hasChildren = (childCountMap.get(node.id) ?? 0) > 0
+    if (hasChildren) handleDrillIn(node.id)
+  }, [childCountMap, handleDrillIn])
+
+  const handleNodeContextMenu = useCallback((e: React.MouseEvent, node: Node) => {
+    e.preventDefault()
+    if (node.type !== 'orgNode') return
+    setFocusedNode(node.id)
+    setContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+  }, [])
 
   const handleNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
@@ -358,7 +455,7 @@ export default function PersoneCanvas() {
     setFocusedNode(null)
   }, [])
 
-  const focusedLabel = useMemo(() => getLabel(focusedNode ?? ''), [focusedNode, personaMap]) // eslint-disable-line react-hooks/exhaustive-deps
+  const focusedLabel = useMemo(() => getLabel(focusedNode ?? ''), [focusedNode, getLabel])
 
   if (timesheet.length === 0) {
     return (
@@ -429,6 +526,20 @@ export default function PersoneCanvas() {
           </div>
         )}
 
+        {/* Drag edit mode toggle */}
+        <button
+          onClick={() => { setDragEditMode(m => !m); setDragTargetId(null) }}
+          className={[
+            'px-2.5 py-1.5 text-xs rounded-md border transition-colors',
+            dragEditMode
+              ? 'bg-amber-900/50 border-amber-600 text-amber-300 font-medium'
+              : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+          ].join(' ')}
+          title="Modalità modifica supervisore: trascina una persona su un'altra per cambiarne il supervisore"
+        >
+          {dragEditMode ? '✎ Modifica attiva' : '✎ Modifica supervisore'}
+        </button>
+
         <div className="flex-1" />
 
         {focusedNode && drillPath.length <= 1 && (
@@ -444,6 +555,23 @@ export default function PersoneCanvas() {
           <option value="societa">Società</option>
           <option value="area">Area</option>
         </select>
+
+        {/* Campi nodo */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-slate-500 whitespace-nowrap">Campi:</span>
+          {([0, 1, 2] as const).map(i => (
+            <select
+              key={i}
+              value={nodeFields[i]}
+              onChange={e => setNodeFields(prev => { const n = [...prev] as [string,string,string]; n[i] = e.target.value; return n })}
+              className="text-xs bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              {NODE_FIELD_OPTIONS.filter(o => o.value === '' || o.value === nodeFields[i] || !nodeFields.includes(o.value)).map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          ))}
+        </div>
 
         <span className="text-xs text-slate-500 px-2 py-1 bg-slate-800 rounded border border-slate-700 tabular-nums">
           {compactMode ? 'Compact' : zoom <= 0.4 ? 'Macro' : zoom <= 0.8 ? 'Standard' : 'Micro'}
@@ -465,17 +593,21 @@ export default function PersoneCanvas() {
       <div className="flex flex-1 min-h-0">
         <div className="flex-1 min-w-0 relative">
           <ReactFlow
-            nodes={nodes} edges={edges}
+            nodes={derivedNodes} edges={edges}
             nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES}
             fitView fitViewOptions={{ padding: 0.15 }}
             minZoom={0.1} maxZoom={2}
             proOptions={{ hideAttribution: true }}
-            onNodeClick={handleNodeClick}
+            nodesDraggable={dragEditMode}
+            onNodeClick={dragEditMode ? undefined : handleNodeClick}
+            onNodeContextMenu={handleNodeContextMenu}
             onNodeDoubleClick={handleNodeDoubleClick}
             onPaneClick={handlePaneClick}
             onNodeMouseEnter={(_, node) => { if (node.type === 'orgNode') setHoveredNode(node.id) }}
             onNodeMouseLeave={() => setHoveredNode(null)}
-            style={{ background: '#0f172a' }}
+            onNodeDrag={dragEditMode ? handleNodeDrag : undefined}
+            onNodeDragStop={dragEditMode ? handleNodeDragStop : undefined}
+            style={{ background: '#0f172a', cursor: dragEditMode ? 'grab' : undefined }}
           >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#334155" />
             <Controls position="bottom-right" className="!shadow-none !border !border-slate-700 !rounded-lg overflow-hidden" />
@@ -507,6 +639,39 @@ export default function PersoneCanvas() {
           onOpenDetail={() => openDrawer(contextMenu.nodeId)}
           onClose={() => setContextMenu(null)}
         />
+      )}
+
+      {/* Reparent confirmation modal */}
+      {pendingReparent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-96 p-6 flex flex-col gap-4">
+            <h3 className="text-sm font-semibold text-slate-200">Modifica supervisore</h3>
+            <p className="text-sm text-slate-400">
+              Imposta <span className="text-slate-100 font-medium">{pendingReparent.newParentLabel}</span> come supervisore di{' '}
+              <span className="text-green-300 font-medium">{pendingReparent.nodeLabel}</span>?
+            </p>
+            <p className="text-xs text-slate-500">
+              Il campo <code className="font-mono bg-slate-800 px-1 rounded">cf_supervisore</code> verrà aggiornato nel database.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setPendingReparent(null)} disabled={reparenting}
+                className="px-4 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+                Annulla
+              </button>
+              <button onClick={handleConfirmReparent} disabled={reparenting}
+                className="px-4 py-1.5 text-sm bg-green-700 hover:bg-green-600 text-white rounded-lg transition-colors disabled:opacity-50">
+                {reparenting ? 'Aggiorno…' : 'Conferma'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drag mode banner */}
+      {dragEditMode && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 px-4 py-2 bg-amber-900/80 border border-amber-600 rounded-full text-xs text-amber-200 pointer-events-none shadow-lg">
+          Trascina una persona sopra un'altra per cambiarne il supervisore
+        </div>
       )}
     </div>
   )
