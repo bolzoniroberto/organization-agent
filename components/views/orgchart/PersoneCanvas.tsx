@@ -115,7 +115,21 @@ export default function PersoneCanvas() {
   const compactModeRef = useRef(false)
   const { fitView, setCenter } = useReactFlow()
   const { zoom } = useViewport()
-  const { drillPath, drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
+  const { drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
+
+  const drillBreadcrumb = useMemo(() => {
+    const items: { id: string | null; label: string }[] = [{ id: null, label: 'Radice' }]
+    if (!drillRootId) return items
+    const ancestors: { id: string; label: string }[] = []
+    let cur: string | null = drillRootId
+    while (cur) {
+      const t = timesheet.find(t => t.cf_dipendente === cur)
+      if (!t) break
+      ancestors.unshift({ id: cur, label: getLabel(cur) })
+      cur = t.cf_supervisore ?? null
+    }
+    return [...items, ...ancestors]
+  }, [drillRootId, timesheet, getLabel])
   const initializedRef = useRef(false)
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
   const [dragEditMode, setDragEditMode] = useState(false)
@@ -292,7 +306,7 @@ export default function PersoneCanvas() {
   const collapseToRoot = useCallback(() => {
     const allCfs = new Set(timesheet.map(t => t.cf_dipendente))
     const rootIds = new Set(timesheet.filter(t => !t.cf_supervisore || !allCfs.has(t.cf_supervisore)).map(t => t.cf_dipendente))
-    drillTo(0, () => {
+    drillTo(null, () => {
       setCollapsedSet(new Set(timesheet.filter(t => !rootIds.has(t.cf_dipendente)).map(t => t.cf_dipendente)))
       setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 50)
     })
@@ -415,14 +429,14 @@ export default function PersoneCanvas() {
   }, [nodes, setCenter, getLabel])
 
   const handleFocusExpand = useCallback((nodeId: string) => {
-    drillInto(nodeId, getLabel(nodeId), 'expand', () => {
+    drillInto(nodeId, 'expand', () => {
       setCollapsedSet(new Set())
       setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
     })
   }, [drillInto, fitView, getLabel])
 
   const handleDrillIn = useCallback((nodeId: string) => {
-    drillInto(nodeId, getLabel(nodeId), 'navigate', () => {
+    drillInto(nodeId, 'navigate', () => {
       setCollapsedSet(new Set())
       setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
     })
@@ -491,7 +505,7 @@ export default function PersoneCanvas() {
           )}
         </div>
 
-        {drillPath.length <= 1 && (
+        {!drillRootId && (
           <>
             <button onClick={() => setCollapsedSet(new Set())}
               className="text-sm text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-700 rounded-md transition-colors">
@@ -504,17 +518,17 @@ export default function PersoneCanvas() {
           </>
         )}
 
-        {/* Drill breadcrumb */}
-        {drillPath.length > 1 && (
+        {/* Drill breadcrumb — derivato dalla gerarchia reale */}
+        {drillRootId && (
           <div className="flex items-center gap-0.5 text-sm">
-            {drillPath.map((item, idx) => (
+            {drillBreadcrumb.map((item, idx) => (
               <React.Fragment key={idx}>
                 {idx > 0 && <span className="text-slate-600 mx-0.5">/</span>}
                 <button
-                  onClick={() => drillTo(idx, () => { setCollapsedSet(new Set()); setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50) })}
+                  onClick={() => drillTo(item.id, () => { setCollapsedSet(new Set()); setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50) })}
                   className={[
                     'px-1.5 py-0.5 rounded transition-colors max-w-[120px] truncate',
-                    idx === drillPath.length - 1
+                    idx === drillBreadcrumb.length - 1
                       ? 'text-slate-200 font-medium cursor-default'
                       : 'text-indigo-400 hover:text-indigo-200 hover:bg-slate-700'
                   ].join(' ')}
@@ -542,7 +556,7 @@ export default function PersoneCanvas() {
 
         <div className="flex-1" />
 
-        {focusedNode && drillPath.length <= 1 && (
+        {focusedNode && !drillRootId && (
           <div className="flex items-center gap-1.5 px-2 py-1 bg-indigo-900/30 border border-indigo-700 rounded-md text-xs text-indigo-300">
             <span className="truncate max-w-[150px]">{focusedLabel}</span>
             <button onClick={clearFocus}><X className="w-3 h-3" /></button>
@@ -634,6 +648,9 @@ export default function PersoneCanvas() {
           x={contextMenu.x} y={contextMenu.y}
           label={getLabel(contextMenu.nodeId)}
           hasChildren={(childCountMap.get(contextMenu.nodeId) ?? 0) > 0}
+          isPinned={false}
+          onPin={() => {}}
+          onUnpin={() => {}}
           onFocusExpand={() => handleFocusExpand(contextMenu.nodeId)}
           onDrillIn={() => handleDrillIn(contextMenu.nodeId)}
           onOpenDetail={() => openDrawer(contextMenu.nodeId)}

@@ -4,7 +4,7 @@ import {
   ReactFlow, Background, Controls, MiniMap,
   type Node, type Edge, type EdgeProps,
   BackgroundVariant, useReactFlow, useViewport,
-  BaseEdge, getSmoothStepPath, Position
+  BaseEdge,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Search, X } from 'lucide-react'
@@ -23,155 +23,34 @@ import { useOrgDrill } from '@/lib/use-org-drill'
 const NODE_TYPES = { orgNode: OrgNode, orgGroup: OrgGroupNode }
 const TARGET_RATIO = 1.8
 const MAX_ITER = 5
-const SEDE_NODE_W = 240
-const SEDE_NODE_H = 100
-const SEDE_PAD = 20
-const SEDE_GAP = 40
-const SEDE_INNER_COLS = 4
 
-type ColorMode = 'none' | 'sede_tns' | 'livello'
-type ColorScheme = { border: string; bg: string }
-type NodeBox = { x: number; y: number; w: number; h: number }
-
-const NODE_FIELD_OPTIONS = [
-  { value: '', label: '— nessuno —' },
-  { value: 'nome', label: 'Nome' },
-  { value: 'codice', label: 'Codice' },
-  { value: 'livello', label: 'Livello' },
-  { value: 'tipo', label: 'Tipo' },
-  { value: 'sede_tns', label: 'Sede TNS' },
-  { value: 'titolare', label: 'Titolare' },
-  { value: 'cf_titolare', label: 'CF Titolare' },
-  { value: 'cdc', label: 'CdC' },
-  { value: 'descrizione', label: 'Descrizione' },
+const ALL_FIELD_OPTIONS: { group: string; fields: { value: string; label: string }[] }[] = [
+  { group: 'Struttura', fields: [
+    { value: '', label: '— nessuno —' },
+    { value: 'nome', label: 'Nome' },
+    { value: 'codice', label: 'Codice' },
+    { value: 'livello', label: 'Livello' },
+    { value: 'tipo', label: 'Tipo' },
+    { value: 'sede_tns', label: 'Sede TNS' },
+    { value: 'titolare', label: 'Titolare' },
+    { value: 'cf_titolare', label: 'CF Titolare' },
+    { value: 'cdc', label: 'CdC' },
+    { value: 'descrizione', label: 'Descrizione' },
+  ]},
 ]
+const ALL_FIELD_FLAT = ALL_FIELD_OPTIONS.flatMap(g => g.fields)
 
 function resolveField(s: StrutturaTns, field: string): string | null | undefined {
   if (!field) return null
   return (s as unknown as Record<string, unknown>)[field] as string | null
 }
 
-function buildColorMap(items: StrutturaTns[], mode: ColorMode): Map<string, ColorScheme> {
-  if (mode === 'none') return new Map()
-  const getVal = (s: StrutturaTns): string =>
-    mode === 'sede_tns' ? (s.sede_tns ?? '') : (s.livello ?? '')
-  const unique = [...new Set(items.map(getVal).filter(Boolean))]
-  return new Map(unique.map((val, i) => [
-    val,
-    {
-      border: `hsl(${Math.round((i / unique.length) * 300)}, 55%, 55%)`,
-      bg: `hsl(${Math.round((i / unique.length) * 300)}, 55%, 97%)`
-    }
-  ]))
-}
-
-function segmentIntersectsBox(x1: number, y1: number, x2: number, y2: number, box: NodeBox): boolean {
-  const midX = (x1 + x2) / 2
-  const minY = Math.min(y1, y2), maxY = Math.max(y1, y2)
-  return midX >= box.x && midX <= box.x + box.w && maxY >= box.y && minY <= box.y + box.h
-}
-
-function OrgEdge({ id, sourceX, sourceY, targetX, targetY, data, style }: EdgeProps) {
-  const obstructed = (data as { nodeBoxes?: NodeBox[] } | undefined)?.nodeBoxes?.some(
-    box => segmentIntersectsBox(sourceX, sourceY, targetX, targetY, box)
-  ) ?? false
-  const [path] = getSmoothStepPath({
-    sourceX, sourceY, sourcePosition: Position.Bottom,
-    targetX, targetY, targetPosition: Position.Top,
-    borderRadius: obstructed ? 8 : 5,
-    ...(obstructed ? { offset: 40 } : {})
-  })
+function OrgEdge({ id, sourceX, sourceY, targetX, targetY, style }: EdgeProps) {
+  const midY = (sourceY + targetY) / 2
+  const path = `M ${sourceX},${sourceY} L ${sourceX},${midY} L ${targetX},${midY} L ${targetX},${targetY}`
   return <BaseEdge id={id} path={path} style={style} />
 }
 const EDGE_TYPES = { orgEdge: OrgEdge }
-
-function buildSedeLayout(
-  items: StrutturaTns[],
-  colorMap: Map<string, ColorScheme>,
-  colorMode: ColorMode,
-  activePath: Set<string> | null,
-  onOpenDrawer: (codice: string) => void
-): { nodes: Node[]; edges: Edge[] } {
-  const bySede = new Map<string, StrutturaTns[]>()
-  items.forEach(s => {
-    const sede = s.sede_tns ?? 'N/A'
-    if (!bySede.has(sede)) bySede.set(sede, [])
-    bySede.get(sede)!.push(s)
-  })
-  const sedeList = [...bySede.keys()]
-  const sedeColors = new Map<string, ColorScheme>(sedeList.map((sede, i) => [
-    sede,
-    {
-      border: `hsl(${Math.round((i / sedeList.length) * 300)}, 55%, 55%)`,
-      bg: `hsl(${Math.round((i / sedeList.length) * 300)}, 55%, 20%)`
-    }
-  ]))
-
-  let offsetX = 0
-  const nodes: Node[] = []
-  const edges: Edge[] = []
-
-  bySede.forEach((sedeItems, sede) => {
-    const cols = Math.min(SEDE_INNER_COLS, sedeItems.length)
-    const rows = Math.ceil(sedeItems.length / SEDE_INNER_COLS)
-    const groupW = SEDE_PAD * 2 + cols * SEDE_NODE_W + (cols - 1) * 12
-    const groupH = 50 + rows * SEDE_NODE_H + (rows - 1) * 12
-    const sedeColor = sedeColors.get(sede)!
-
-    nodes.push({
-      id: `group_${sede}`,
-      type: 'orgGroup',
-      position: { x: offsetX, y: 0 },
-      style: { width: groupW, height: groupH },
-      data: { label: sede, count: sedeItems.length, color: sedeColor.border, bgColor: '#1e293b' }
-    })
-
-    sedeItems.forEach((s, i) => {
-      const colorVal = colorMode === 'sede_tns' ? (s.sede_tns ?? '') : (s.livello ?? '')
-      const colorScheme = colorMode !== 'none' ? colorMap.get(colorVal) : undefined
-      const focusStyle: React.CSSProperties = activePath
-        ? { opacity: activePath.has(s.codice) ? 1 : 0.2, transition: 'opacity 150ms' }
-        : {}
-      nodes.push({
-        id: s.codice,
-        type: 'orgNode',
-        parentId: `group_${sede}`,
-        extent: 'parent',
-        position: {
-          x: SEDE_PAD + (i % SEDE_INNER_COLS) * (SEDE_NODE_W + 12),
-          y: 40 + Math.floor(i / SEDE_INNER_COLS) * (SEDE_NODE_H + 12)
-        },
-        data: {
-          id: s.codice,
-          label: s.nome ?? s.codice,
-          sublabel: s.codice,
-          tipo: 'TNS' as const,
-          collapsed: false, hasChildren: false, childrenCount: 0, depth: 0,
-          isOverflowed: false, hiddenCount: 0, colorScheme,
-          onExpand: () => {}, onExpandOverflow: () => {},
-          onOpenDrawer: () => onOpenDrawer(s.codice)
-        },
-        style: focusStyle
-      })
-    })
-    offsetX += groupW + SEDE_GAP
-  })
-
-  items.forEach(s => {
-    if (s.padre) {
-      const parent = items.find(p => p.codice === s.padre)
-      if (parent && parent.sede_tns !== s.sede_tns) {
-        edges.push({
-          id: `e_${s.padre}-${s.codice}`,
-          source: s.padre, target: s.codice,
-          style: { stroke: '#475569', strokeDasharray: '4 4' }
-        })
-      }
-    }
-  })
-
-  return { nodes, edges }
-}
 
 export default function TnsCanvas() {
   const { struttureTns, persone, refreshAll, showToast } = useHRStore()
@@ -184,16 +63,32 @@ export default function TnsCanvas() {
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<StrutturaTns[]>([])
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null)
-  const [colorMode, setColorMode] = useState<ColorMode>('none')
   const [nodeFields, setNodeFields] = useState<[string, string, string]>(['nome', 'codice', 'livello'])
-  const [viewMode, setViewMode] = useState<'tree' | 'sede'>('tree')
   const [focusedNode, setFocusedNode] = useState<string | null>(null)
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
+  const [groupByName, setGroupByName] = useState(false)
+  const [leafListMode, setLeafListMode] = useState(false)
+  const [showFieldsPanel, setShowFieldsPanel] = useState(false)
   const prevVisibleIdsRef = useRef<Set<string>>(new Set())
   const compactModeRef = useRef(false)
   const { fitView, setCenter } = useReactFlow()
   const { zoom } = useViewport()
-  const { drillPath, drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
+  const { drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
+
+  const drillBreadcrumb = useMemo(() => {
+    const items: { id: string | null; label: string }[] = [{ id: null, label: 'Radice' }]
+    if (!drillRootId) return items
+    const ancestors: { id: string; label: string }[] = []
+    let cur: string | null = drillRootId
+    while (cur) {
+      const s = filtered.find(s => s.codice === cur)
+      if (!s) break
+      ancestors.unshift({ id: cur, label: s.nome ?? cur })
+      cur = s.padre ?? null
+    }
+    return [...items, ...ancestors]
+  }, [drillRootId, filtered])
+
   const initializedRef = useRef(false)
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
   const [dragEditMode, setDragEditMode] = useState(false)
@@ -237,6 +132,37 @@ export default function TnsCanvas() {
     return map
   }, [filtered])
 
+  // ── Raggruppamento strutture con stesso nome (solo foglie) ──────────────────
+  const [groupedResult, groupedMap] = useMemo((): [StrutturaTns[], Map<string, StrutturaTns[]>] => {
+    if (!groupByName) return [drilledFiltered, new Map()]
+    const hasChildrenInFull = new Set(filtered.map(s => s.padre).filter(Boolean) as string[])
+    const grouped = new Map<string, StrutturaTns[]>()
+    const branches: StrutturaTns[] = []
+    drilledFiltered.forEach(s => {
+      if (hasChildrenInFull.has(s.codice)) {
+        branches.push(s)
+      } else {
+        const key = `${s.padre ?? '__ROOT__'}|||${s.nome ?? s.codice}`
+        if (!grouped.has(key)) grouped.set(key, [])
+        grouped.get(key)!.push(s)
+      }
+    })
+    const result: StrutturaTns[] = [...branches]
+    const gpMap = new Map<string, StrutturaTns[]>()
+    grouped.forEach(group => {
+      if (group.length === 1) {
+        result.push(group[0])
+      } else {
+        const first = group[0]
+        const safeName = (first.nome ?? first.codice).replace(/[^a-zA-Z0-9]/g, '_').slice(0, 20)
+        const virtualId = `grp_${first.padre ?? 'root'}_${safeName}`
+        result.push({ ...first, codice: virtualId })
+        gpMap.set(virtualId, group)
+      }
+    })
+    return [result, gpMap]
+  }, [drilledFiltered, groupByName, filtered])
+
   const visibleTree = useMemo(() => {
     function filterTree(nodes: TreeNode<StrutturaTns>[]): TreeNode<StrutturaTns>[] {
       return nodes.map(n => {
@@ -244,12 +170,42 @@ export default function TnsCanvas() {
         return { ...n, children: filterTree(n.children) }
       })
     }
-    const root = buildTree(drilledFiltered, s => s.codice, s => s.padre ?? null)
+
+    const root = buildTree(groupedResult, s => s.codice, s => s.padre ?? null)
     const metrics = analyzeTree(root)
+
+    let vGap = 115
+    if (leafListMode || groupByName) {
+      const childrenOfId = new Map<string, string[]>()
+      groupedResult.forEach(s => {
+        if (s.padre) {
+          if (!childrenOfId.has(s.padre)) childrenOfId.set(s.padre, [])
+          childrenOfId.get(s.padre)!.push(s.codice)
+        }
+      })
+      let maxNodeHeight = 72
+      if (leafListMode) {
+        childrenOfId.forEach(children => {
+          if (children.every(c => !childrenOfId.has(c))) {
+            const listH = Math.min(children.length * 22 + 20, 212)
+            maxNodeHeight = Math.max(maxNodeHeight, 72 + listH)
+          }
+        })
+      }
+      if (groupByName) {
+        groupedMap.forEach(g => {
+          const listH = Math.min(g.length * 20 + 10, 154)
+          maxNodeHeight = Math.max(maxNodeHeight, 72 + listH)
+        })
+      }
+      vGap = Math.max(115, maxNodeHeight + 20)
+    }
+
     const cfg: LayoutConfig = {
       gridCols: metrics.dynamicGridCols,
       verticalStackingDepth: metrics.useVerticalStacking ? 7 : null,
-      forcedVerticalNodes: new Set()
+      forcedVerticalNodes: new Set(),
+      vGap,
     }
     const f = filterTree(root)
     layoutTree(f, 0, cfg)
@@ -268,7 +224,7 @@ export default function TnsCanvas() {
       iter++
     }
     return flattenTree(f)
-  }, [drilledFiltered, collapsedSet])
+  }, [groupedResult, collapsedSet, leafListMode, groupByName, groupedMap])
 
   const compactMode = useMemo(() => {
     const n = visibleTree.length
@@ -276,8 +232,6 @@ export default function TnsCanvas() {
     else if (compactModeRef.current && (zoom > 0.4 || n < 35)) compactModeRef.current = false
     return compactModeRef.current
   }, [visibleTree.length, zoom])
-
-  const colorMap = useMemo(() => buildColorMap(filtered, colorMode), [filtered, colorMode])
 
   const semanticStatusMap = useMemo(() => {
     const directCount = new Map<string, number>()
@@ -323,6 +277,12 @@ export default function TnsCanvas() {
   }, [hoveredNode, filtered])
 
   const activePath = drillRootId ? null : (focusPath ?? hoverPath)
+
+  const strutturaTnsMap = useMemo(() => {
+    const m = new Map<string, StrutturaTns>()
+    filtered.forEach(s => m.set(s.codice, s))
+    return m
+  }, [filtered])
 
   // ── Drag-to-reparent ───────────────────────────────────────────────────────
   const isDescendant = useCallback((ancestorId: string, checkId: string): boolean => {
@@ -388,7 +348,7 @@ export default function TnsCanvas() {
   const collapseToRoot = useCallback(() => {
     const allCodici = new Set(filtered.map(s => s.codice))
     const rootIds = new Set(filtered.filter(s => !s.padre || !allCodici.has(s.padre)).map(s => s.codice))
-    drillTo(0, () => {
+    drillTo(null, () => {
       setCollapsedSet(new Set(filtered.filter(s => !rootIds.has(s.codice)).map(s => s.codice)))
       setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 50)
     })
@@ -402,81 +362,127 @@ export default function TnsCanvas() {
     })
   }, [])
 
-  const strutturaTnsMap = useMemo(() => {
-    const m = new Map<string, StrutturaTns>()
-    filtered.forEach(s => m.set(s.codice, s))
-    return m
-  }, [filtered])
-
   const { nodes, edges } = useMemo(() => {
-    if (viewMode === 'sede') {
-      return buildSedeLayout(filtered, colorMap, colorMode, activePath, openDrawer)
-    }
-
     const prevIds = prevVisibleIdsRef.current
     const newParentCount = new Map<string, number>()
-    const nodeBoxes: NodeBox[] = visibleTree.map(tn => ({ x: tn.x, y: tn.y, w: 220, h: 90 }))
 
-    const treeNodes = visibleTree.map(tn => {
-      const codice = tn.id
-      const s = strutturaTnsMap.get(codice)
-      const totalChildren = childCountMap.get(codice) ?? 0
-      const isCollapsed = collapsedSet.has(codice)
-
-      const colorVal = colorMode === 'sede_tns' ? (s?.sede_tns ?? '') : (s?.livello ?? '')
-      const colorScheme = colorMode !== 'none' ? colorMap.get(colorVal) : undefined
-      const focusStyle: React.CSSProperties = activePath
-        ? { opacity: activePath.has(codice) ? 1 : 0.2, transition: 'opacity 100ms' }
-        : { transition: 'opacity 150ms' }
-
-      const isNew = !prevIds.has(codice)
-      let entranceDelay: number | undefined
-      if (isNew) {
-        const parentKey = tn.item.padre ?? '__root__'
-        const sibIdx = newParentCount.get(parentKey) ?? 0
-        newParentCount.set(parentKey, sibIdx + 1)
-        entranceDelay = sibIdx * 40
-      }
-
-      const label = s ? (resolveField(s, nodeFields[0]) ?? codice) : codice
-      const sublabel = s && nodeFields[1] ? resolveField(s, nodeFields[1]) : undefined
-      const extraDetail = s && nodeFields[2] ? resolveField(s, nodeFields[2]) : undefined
-
-      return {
-        id: codice,
-        type: 'orgNode',
-        position: { x: tn.x, y: tn.y },
-        data: {
-          id: codice,
-          label,
-          sublabel,
-          extraDetail,
-          tipo: 'TNS' as const,
-          collapsed: isCollapsed, hasChildren: totalChildren > 0,
-          childrenCount: totalChildren, depth: tn.depth,
-          isOverflowed: false, hiddenCount: 0, colorScheme,
-          semanticStatus: semanticStatusMap.get(codice),
-          entranceDelay, compact: compactMode,
-          onExpand: () => toggleCollapse(codice),
-          onExpandOverflow: () => {},
-          onOpenDrawer: () => openDrawer(codice)
-        },
-        className: highlightedNode === codice ? 'ring-2 ring-indigo-400 rounded-lg' : undefined,
-        style: focusStyle
+    // ── leafListMode: map parent → absorbed leaf children ────────────────────
+    const childrenOf = new Map<string, Array<TreeNode<StrutturaTns>>>()
+    visibleTree.forEach(tn => {
+      if (tn.item.padre) {
+        const arr = childrenOf.get(tn.item.padre) ?? []
+        arr.push(tn)
+        childrenOf.set(tn.item.padre, arr)
       }
     })
+    const leafListMap = new Map<string, Array<TreeNode<StrutturaTns>>>()
+    if (leafListMode) {
+      visibleTree.forEach(tn => {
+        const children = childrenOf.get(tn.id) ?? []
+        if (
+          children.length > 0 &&
+          children.every(c => (childrenOf.get(c.id)?.length ?? 0) === 0) &&
+          children.every(c => !groupedMap.has(c.id))
+        ) {
+          leafListMap.set(tn.id, children)
+        }
+      })
+    }
+    const absorbedIds = new Set<string>()
+    leafListMap.forEach(children => children.forEach(c => absorbedIds.add(c.id)))
 
-    const treeEdges: Edge[] = visibleTree.filter(tn => tn.parentId).map(tn => ({
-      id: `${tn.parentId}-${tn.id}`,
-      source: tn.parentId!, target: tn.id,
-      type: 'orgEdge', data: { nodeBoxes },
-      style: { stroke: '#475569', strokeWidth: 1.5 }
-    }))
+    const treeNodes = visibleTree
+      .filter(tn => !absorbedIds.has(tn.id))
+      .map(tn => {
+        const codice = tn.id
+        const s = strutturaTnsMap.get(codice)
+        const totalChildren = childCountMap.get(codice) ?? 0
+        const isCollapsed = collapsedSet.has(codice)
+
+        const focusStyle: React.CSSProperties = activePath
+          ? { opacity: activePath.has(codice) ? 1 : 0.2, transition: 'opacity 100ms' }
+          : { transition: 'opacity 150ms' }
+
+        const isNew = !prevIds.has(codice)
+        let entranceDelay: number | undefined
+        if (isNew) {
+          const parentKey = tn.item.padre ?? '__root__'
+          const sibIdx = newParentCount.get(parentKey) ?? 0
+          newParentCount.set(parentKey, sibIdx + 1)
+          entranceDelay = sibIdx * 40
+        }
+
+        const leafListChildren = leafListMap.get(codice)
+        const leafList = leafListChildren?.map(child => ({
+          id: child.id,
+          label: resolveField(child.item, nodeFields[0]) ?? child.id,
+          sublabel: resolveField(child.item, nodeFields[1]) ?? undefined,
+          tipo: 'TNS' as const,
+          onOpenDrawer: () => openDrawer(child.id)
+        }))
+
+        const gpList = groupedMap.get(codice)
+        const groupedPersons = gpList?.map(gs => ({
+          id: gs.codice,
+          label: gs.titolare ?? gs.nome ?? gs.codice,
+          sublabel: resolveField(gs, nodeFields[1]) ?? undefined,
+          onOpenDrawer: () => openDrawer(gs.codice)
+        }))
+
+        const hasChildrenFlag = leafList ? false : totalChildren > 0
+        const childrenCountVal = leafList ? leafListChildren!.length : totalChildren
+
+        const label = gpList
+          ? (resolveField(strutturaTnsMap.get(codice) ?? gpList[0], nodeFields[0]) ?? codice)
+          : (s ? (resolveField(s, nodeFields[0]) ?? codice) : codice)
+        const sublabel = gpList
+          ? `${gpList.length} strutture`
+          : (s && nodeFields[1] ? resolveField(s, nodeFields[1]) : undefined)
+        const extraDetail = s && nodeFields[2] ? resolveField(s, nodeFields[2]) : undefined
+
+        return {
+          id: codice,
+          type: 'orgNode',
+          position: { x: tn.x, y: tn.y },
+          data: {
+            id: codice,
+            label,
+            sublabel,
+            extraDetail,
+            tipo: 'TNS' as const,
+            collapsed: leafList ? false : isCollapsed,
+            hasChildren: hasChildrenFlag,
+            childrenCount: childrenCountVal,
+            depth: tn.depth,
+            isOverflowed: false, hiddenCount: 0, colorScheme: undefined,
+            semanticStatus: semanticStatusMap.get(codice),
+            entranceDelay, compact: compactMode,
+            onExpand: () => toggleCollapse(codice),
+            onExpandOverflow: () => {},
+            onOpenDrawer: gpList ? () => {} : () => openDrawer(codice),
+            leafList,
+            groupedPersons,
+          },
+          className: highlightedNode === codice ? 'ring-2 ring-indigo-400 rounded-lg' : undefined,
+          style: focusStyle
+        }
+      })
+
+    const treeEdges: Edge[] = visibleTree
+      .filter(tn => tn.item.padre && !absorbedIds.has(tn.id))
+      .map(tn => ({
+        id: `${tn.item.padre}-${tn.id}`,
+        source: tn.item.padre!,
+        target: tn.id,
+        type: 'orgEdge',
+        style: { stroke: '#475569', strokeWidth: 1.5 }
+      }))
 
     return { nodes: treeNodes as Node[], edges: treeEdges }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, visibleTree, collapsedSet, childCountMap, highlightedNode,
-      toggleCollapse, filtered, colorMode, colorMap, semanticStatusMap, activePath, compactMode, openDrawer, strutturaTnsMap, nodeFields])
+  }, [visibleTree, collapsedSet, childCountMap, highlightedNode,
+      toggleCollapse, semanticStatusMap, activePath, compactMode, openDrawer,
+      strutturaTnsMap, nodeFields, leafListMode, groupedMap, groupByName])
 
   useEffect(() => {
     prevVisibleIdsRef.current = new Set(nodes.filter(n => n.type === 'orgNode').map(n => n.id))
@@ -495,7 +501,7 @@ export default function TnsCanvas() {
   useEffect(() => {
     if (nodes.length > 0) setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 100)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, viewMode, drillRootId])
+  }, [filtered, drillRootId])
 
   useEffect(() => {
     setTimeout(() => fitView({ padding: 0.15, duration: 300 }), 50)
@@ -522,20 +528,18 @@ export default function TnsCanvas() {
   }, [nodes, setCenter])
 
   const handleFocusExpand = useCallback((nodeId: string) => {
-    const s = filtered.find(s => s.codice === nodeId)
-    drillInto(nodeId, s?.nome ?? nodeId, 'expand', () => {
+    drillInto(nodeId, 'expand', () => {
       setCollapsedSet(new Set())
       setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
     })
-  }, [filtered, drillInto, fitView])
+  }, [drillInto, fitView])
 
   const handleDrillIn = useCallback((nodeId: string) => {
-    const s = filtered.find(s => s.codice === nodeId)
-    drillInto(nodeId, s?.nome ?? nodeId, 'navigate', () => {
+    drillInto(nodeId, 'navigate', () => {
       setCollapsedSet(new Set())
       setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
     })
-  }, [filtered, drillInto, fitView])
+  }, [drillInto, fitView])
 
   const handleNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
@@ -583,6 +587,7 @@ export default function TnsCanvas() {
     <div className="flex flex-col h-full">
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 py-2 bg-slate-900 border-b border-slate-700 flex-wrap">
+        {/* 1. Search */}
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
           <input
@@ -603,7 +608,8 @@ export default function TnsCanvas() {
           )}
         </div>
 
-        {viewMode === 'tree' && drillPath.length <= 1 && (
+        {/* 2. Espandi/Comprimi (when not in drill) */}
+        {!drillRootId && (
           <>
             <button onClick={() => setCollapsedSet(new Set())}
               className="text-sm text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-700 rounded-md transition-colors">
@@ -616,17 +622,35 @@ export default function TnsCanvas() {
           </>
         )}
 
-        {/* Drill breadcrumb */}
-        {viewMode === 'tree' && drillPath.length > 1 && (
+        {/* 3. Raggruppa nomi */}
+        <button onClick={() => setGroupByName(g => !g)} className={[
+          'px-2.5 py-1.5 text-xs rounded-md border transition-colors',
+          groupByName ? 'bg-violet-900/50 border-violet-600 text-violet-300 font-medium'
+                      : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+        ].join(' ')} title="Raggruppa strutture foglia con lo stesso nome in una singola card">
+          ⊞ Raggruppa nomi
+        </button>
+
+        {/* 4. Lista foglie */}
+        <button onClick={() => setLeafListMode(m => !m)} className={[
+          'px-2.5 py-1.5 text-xs rounded-md border transition-colors',
+          leafListMode ? 'bg-teal-900/50 border-teal-600 text-teal-300 font-medium'
+                       : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+        ].join(' ')} title="Mostra le foglie come lista inline nel nodo padre">
+          ≡ Lista foglie
+        </button>
+
+        {/* 5. Drill breadcrumb */}
+        {drillRootId && (
           <div className="flex items-center gap-0.5 text-sm">
-            {drillPath.map((item, idx) => (
+            {drillBreadcrumb.map((item, idx) => (
               <React.Fragment key={idx}>
                 {idx > 0 && <span className="text-slate-600 mx-0.5">/</span>}
                 <button
-                  onClick={() => drillTo(idx, () => { setCollapsedSet(new Set()); setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50) })}
+                  onClick={() => drillTo(item.id, () => { setCollapsedSet(new Set()); setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50) })}
                   className={[
                     'px-1.5 py-0.5 rounded transition-colors max-w-[120px] truncate',
-                    idx === drillPath.length - 1
+                    idx === drillBreadcrumb.length - 1
                       ? 'text-slate-200 font-medium cursor-default'
                       : 'text-indigo-400 hover:text-indigo-200 hover:bg-slate-700'
                   ].join(' ')}
@@ -638,84 +662,102 @@ export default function TnsCanvas() {
           </div>
         )}
 
-        {/* Drag edit mode toggle */}
-        {viewMode === 'tree' && (
-          <button
-            onClick={() => { setDragEditMode(m => !m); setDragTargetId(null) }}
-            className={[
-              'px-2.5 py-1.5 text-xs rounded-md border transition-colors',
-              dragEditMode
-                ? 'bg-amber-900/50 border-amber-600 text-amber-300 font-medium'
-                : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
-            ].join(' ')}
-            title="Modalità modifica struttura: trascina un nodo su un altro per cambiarne il padre"
-          >
-            {dragEditMode ? '✎ Modifica attiva' : '✎ Modifica struttura'}
-          </button>
-        )}
+        {/* 6. Drag edit mode */}
+        <button
+          onClick={() => { setDragEditMode(m => !m); setDragTargetId(null) }}
+          className={[
+            'px-2.5 py-1.5 text-xs rounded-md border transition-colors',
+            dragEditMode
+              ? 'bg-amber-900/50 border-amber-600 text-amber-300 font-medium'
+              : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+          ].join(' ')}
+          title="Modalità modifica struttura: trascina un nodo su un altro per cambiarne il padre"
+        >
+          {dragEditMode ? '✎ Modifica attiva' : '✎ Modifica struttura'}
+        </button>
 
+        {/* 7. Spacer */}
         <div className="flex-1" />
 
-        {focusedNode && drillPath.length <= 1 && (
+        {/* 8. Focus indicator */}
+        {focusedNode && !drillRootId && (
           <div className="flex items-center gap-1.5 px-2 py-1 bg-indigo-900/30 border border-indigo-700 rounded-md text-xs text-indigo-300">
             <span className="truncate max-w-[150px]">{focusedLabel}</span>
             <button onClick={clearFocus}><X className="w-3 h-3" /></button>
           </div>
         )}
 
-        <select value={colorMode} onChange={e => setColorMode(e.target.value as ColorMode)}
-          className="text-sm bg-slate-800 border border-slate-600 rounded-md px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500">
-          <option value="none">Colora per…</option>
-          <option value="sede_tns">Sede TNS</option>
-          <option value="livello">Livello</option>
-        </select>
-
-        {/* Campi nodo */}
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-slate-500 whitespace-nowrap">Campi:</span>
-          {([0, 1, 2] as const).map(i => (
-            <select
-              key={i}
-              value={nodeFields[i]}
-              onChange={e => setNodeFields(prev => { const n = [...prev] as [string,string,string]; n[i] = e.target.value; return n })}
-              className="text-xs bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            >
-              {NODE_FIELD_OPTIONS.filter(o => o.value === '' || o.value === nodeFields[i] || !nodeFields.includes(o.value)).map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          ))}
-        </div>
-
-        <span className="text-xs text-slate-500 px-2 py-1 bg-slate-800 rounded border border-slate-700 tabular-nums">
-          {compactMode ? 'Compact' : zoom <= 0.4 ? 'Macro' : zoom <= 0.8 ? 'Standard' : 'Micro'}
-        </span>
-
-        <div className="flex rounded-md border border-slate-600 overflow-hidden">
-          {(['tree', 'sede'] as const).map((vm, i) => (
-            <button key={vm} onClick={() => setViewMode(vm)}
-              className={[
-                'px-3 py-1.5 text-sm transition-colors',
-                i > 0 ? 'border-l border-slate-600' : '',
-                viewMode === vm ? 'bg-indigo-900/50 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-700'
-              ].join(' ')}>
-              {vm === 'tree' ? 'Albero' : 'Per Sede'}
-            </button>
-          ))}
+        {/* 9. Campi panel */}
+        <div className="relative">
+          <button
+            onClick={() => setShowFieldsPanel(p => !p)}
+            className={[
+              'px-2.5 py-1.5 text-xs rounded-md border transition-colors whitespace-nowrap',
+              showFieldsPanel
+                ? 'bg-indigo-900/50 border-indigo-600 text-indigo-300 font-medium'
+                : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+            ].join(' ')}
+          >
+            Campi ({nodeFields.filter(Boolean).length}/3)
+          </button>
+          {showFieldsPanel && (
+            <div className="absolute top-full right-0 mt-1 w-64 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-20 overflow-hidden">
+              <div className="px-3 py-2 border-b border-slate-700 flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-300">Seleziona fino a 3 campi</span>
+                <button onClick={() => setNodeFields(['nome', 'codice', 'livello'])} className="text-xs text-slate-500 hover:text-slate-300">reset</button>
+              </div>
+              <div className="max-h-80 overflow-y-auto">
+                {ALL_FIELD_OPTIONS.map(group => (
+                  <div key={group.group}>
+                    <div className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase tracking-wide bg-slate-900/50 sticky top-0">
+                      {group.group}
+                    </div>
+                    {group.fields.filter(f => f.value !== '').map(field => {
+                      const slotIdx = nodeFields.indexOf(field.value)
+                      const isSelected = slotIdx !== -1
+                      const canSelect = !isSelected && nodeFields.filter(Boolean).length < 3
+                      return (
+                        <button
+                          key={field.value}
+                          disabled={!isSelected && !canSelect}
+                          onClick={() => {
+                            if (isSelected) {
+                              setNodeFields(prev => { const n = [...prev] as [string,string,string]; n[slotIdx] = ''; return n })
+                            } else if (canSelect) {
+                              setNodeFields(prev => {
+                                const n = [...prev] as [string,string,string]
+                                const emptySlot = n.indexOf('')
+                                if (emptySlot !== -1) n[emptySlot] = field.value
+                                return n
+                              })
+                            }
+                          }}
+                          className={[
+                            'w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors',
+                            isSelected ? 'text-slate-200' : canSelect ? 'text-slate-400 hover:bg-slate-700 hover:text-slate-200' : 'text-slate-600 cursor-not-allowed'
+                          ].join(' ')}
+                        >
+                          {isSelected ? (
+                            <span className="w-4 h-4 rounded bg-indigo-600 text-white flex items-center justify-center flex-shrink-0 text-xs font-bold">{slotIdx + 1}</span>
+                          ) : (
+                            <span className="w-4 h-4 rounded border border-slate-600 flex-shrink-0" />
+                          )}
+                          <span className="text-xs">{field.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+              <div className="px-3 py-1.5 border-t border-slate-700 text-xs text-slate-500">
+                {nodeFields.filter(Boolean).map((f, i) => (
+                  <span key={i} className="mr-2">{i + 1}: {ALL_FIELD_FLAT.find(o => o.value === f)?.label ?? f}</span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
-
-      {/* Color legend */}
-      {colorMode !== 'none' && colorMap.size > 0 && (
-        <div className="flex flex-wrap gap-2 px-4 py-1.5 bg-slate-900 border-b border-slate-800">
-          {[...colorMap.entries()].map(([val, c]) => (
-            <span key={val} className="flex items-center gap-1 text-xs text-slate-400">
-              <span className="w-3 h-3 rounded-sm" style={{ background: c.border }} />
-              {val || '—'}
-            </span>
-          ))}
-        </div>
-      )}
 
       <div className="flex flex-1 min-h-0">
         <div className="flex-1 min-w-0 relative">
@@ -786,6 +828,9 @@ export default function TnsCanvas() {
           x={contextMenu.x} y={contextMenu.y}
           label={filtered.find(s => s.codice === contextMenu.nodeId)?.nome ?? contextMenu.nodeId}
           hasChildren={(childCountMap.get(contextMenu.nodeId) ?? 0) > 0}
+          isPinned={false}
+          onPin={() => {}}
+          onUnpin={() => {}}
           onFocusExpand={() => handleFocusExpand(contextMenu.nodeId)}
           onDrillIn={() => handleDrillIn(contextMenu.nodeId)}
           onOpenDetail={() => { const s = filtered.find(s => s.codice === contextMenu.nodeId) ?? null; setDrawerRecord(s); setDrawerOpen(true) }}

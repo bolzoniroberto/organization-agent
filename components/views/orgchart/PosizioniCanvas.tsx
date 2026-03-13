@@ -4,10 +4,11 @@ import {
   ReactFlow, Background, Controls, MiniMap,
   type Node, type Edge, type EdgeProps,
   BackgroundVariant, useReactFlow, useViewport,
-  BaseEdge, getSmoothStepPath, Position,
+  BaseEdge,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Search, X } from 'lucide-react'
+import { Search, X, Pin, PinOff } from 'lucide-react'
+import { usePinnedViews } from '@/lib/use-pinned-views'
 import { useHRStore } from '@/store/useHRStore'
 import { api } from '@/lib/api'
 import type { NodoOrganigramma, Persona } from '@/types'
@@ -32,30 +33,50 @@ const SEDE_INNER_COLS = 4
 
 type ColorMode = 'none' | 'sede' | 'funzione' | 'tipo_nodo'
 
-const NODE_FIELD_OPTIONS = [
-  { value: '', label: '— nessuno —' },
-  { value: 'nome_uo', label: 'Nome UO' },
-  { value: 'cf_persona', label: 'CF Persona' },
-  { value: 'centro_costo', label: 'Centro Costo' },
-  { value: 'funzione', label: 'Funzione' },
-  { value: 'processo', label: 'Processo' },
-  { value: 'sede', label: 'Sede' },
-  { value: 'job_title', label: 'Job Title' },
-  { value: 'societa_org', label: 'Società' },
-  { value: 'tipo_collab', label: 'Tipo Collab' },
+const ALL_FIELD_OPTIONS: { group: string; fields: { value: string; label: string }[] }[] = [
+  { group: 'Nodo', fields: [
+    { value: '', label: '— nessuno —' },
+    { value: 'nome_uo', label: 'Nome UO' },
+    { value: 'cf_persona', label: 'CF Persona' },
+    { value: 'centro_costo', label: 'Centro Costo' },
+    { value: 'funzione', label: 'Funzione' },
+    { value: 'processo', label: 'Processo' },
+    { value: 'sede', label: 'Sede' },
+    { value: 'job_title', label: 'Job Title' },
+    { value: 'societa_org', label: 'Società Org' },
+    { value: 'tipo_collab', label: 'Tipo Collab' },
+  ]},
+  { group: 'Persona', fields: [
+    { value: 'p:nome_completo', label: 'Nome Cognome' },
+    { value: 'p:cognome', label: 'Cognome' },
+    { value: 'p:nome', label: 'Nome' },
+    { value: 'p:email', label: 'Email' },
+    { value: 'p:matricola', label: 'Matricola' },
+    { value: 'p:qualifica', label: 'Qualifica' },
+    { value: 'p:tipo_contratto', label: 'Tipo Contratto' },
+    { value: 'p:societa', label: 'Società' },
+    { value: 'p:area', label: 'Area' },
+    { value: 'p:sotto_area', label: 'Sotto Area' },
+    { value: 'p:sede', label: 'Sede (persona)' },
+    { value: 'p:cdc_amministrativo', label: 'CDC Amm.' },
+    { value: 'p:data_assunzione', label: 'Data Assunzione' },
+    { value: 'p:data_fine_rapporto', label: 'Data Fine Rapporto' },
+    { value: 'p:livello', label: 'Livello' },
+    { value: 'p:ral', label: 'RAL' },
+    { value: 'p:modalita_presenze', label: 'Modalità Presenze' },
+    { value: 'p:part_time', label: 'Part Time' },
+  ]},
+  { group: 'TNS', fields: [
+    { value: 'p:codice_tns', label: 'Codice TNS' },
+    { value: 'p:padre_tns', label: 'Padre TNS' },
+    { value: 'p:livello_tns', label: 'Livello TNS' },
+    { value: 'p:sede_tns', label: 'Sede TNS' },
+    { value: 'p:cdc_tns', label: 'CDC TNS' },
+    { value: 'p:titolare_tns', label: 'Titolare TNS' },
+    { value: 'p:ruoli_tns_desc', label: 'Ruoli TNS' },
+  ]},
 ]
-
-const NODE_FIELD_OPTIONS_P3 = [
-  ...NODE_FIELD_OPTIONS,
-  { value: 'p:nome_completo', label: '👤 Nome Cognome' },
-  { value: 'p:email', label: '👤 Email' },
-  { value: 'p:qualifica', label: '👤 Qualifica' },
-  { value: 'p:tipo_contratto', label: '👤 Tipo Contratto' },
-  { value: 'p:societa', label: '👤 Società (persona)' },
-  { value: 'p:area', label: '👤 Area' },
-  { value: 'p:sede', label: '👤 Sede (persona)' },
-  { value: 'p:data_assunzione', label: '👤 Data Assunzione' },
-]
+const ALL_FIELD_FLAT = ALL_FIELD_OPTIONS.flatMap(g => g.fields)
 
 function resolveField(n: NodoOrganigramma, field: string): string | null | undefined {
   if (!field) return null
@@ -127,12 +148,10 @@ function buildColorMap(nodi: NodoOrganigramma[], mode: ColorMode): Map<string, C
 }
 
 function OrgEdge({ id, sourceX, sourceY, targetX, targetY, style }: EdgeProps) {
-  const [path] = getSmoothStepPath({
-    sourceX, sourceY, sourcePosition: Position.Bottom,
-    targetX, targetY, targetPosition: Position.Top,
-    borderRadius: 6,
-    offset: 20,
-  })
+  // Bus-bar layout: vertical drop → shared horizontal bus → vertical drop to child
+  // Tutti i fratelli hanno stesso sourceY e targetY → midY identico → segmenti orizzontali si sovrappongono in un unico bus
+  const midY = (sourceY + targetY) / 2
+  const path = `M ${sourceX},${sourceY} L ${sourceX},${midY} L ${targetX},${midY} L ${targetX},${targetY}`
   return <BaseEdge id={id} path={path} style={style} />
 }
 const EDGE_TYPES = { orgEdge: OrgEdge }
@@ -252,7 +271,21 @@ export default function PosizioniCanvas() {
   const compactModeRef = useRef(false)
   const { fitView, setCenter } = useReactFlow()
   const { zoom } = useViewport()
-  const { drillPath, drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
+  const { drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
+
+  const drillBreadcrumb = useMemo(() => {
+    const items: { id: string | null; label: string }[] = [{ id: null, label: 'Radice' }]
+    if (!drillRootId) return items
+    const ancestors: { id: string; label: string }[] = []
+    let cur: string | null = drillRootId
+    while (cur) {
+      const n = filtered.find(n => n.id === cur)
+      if (!n) break
+      ancestors.unshift({ id: cur, label: n.nome_uo ?? cur })
+      cur = n.reports_to ?? null
+    }
+    return [...items, ...ancestors]
+  }, [drillRootId, filtered])
   const initializedRef = useRef(false)
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
   const [dragEditMode, setDragEditMode] = useState(false)
@@ -262,7 +295,32 @@ export default function PosizioniCanvas() {
     nodeId: string; nodeLabel: string; newParentId: string; newParentLabel: string
   } | null>(null)
   const [reparenting, setReparenting] = useState(false)
+  const [showUnassigned, setShowUnassigned] = useState(false)
+  const [unassignedSearch, setUnassignedSearch] = useState('')
+  const [groupByName, setGroupByName] = useState(false)
+  const [leafListMode, setLeafListMode] = useState(false)
+  const [showFieldsPanel, setShowFieldsPanel] = useState(false)
+  const [pinsExpanded, setPinsExpanded] = useState(true)
+  const pinClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { showToast } = useHRStore()
+  const { pins, addPin, removePin, isPinned } = usePinnedViews()
+
+  const personeNonAssegnate = useMemo(() => {
+    const cfInNodi = new Set(filtered.map(n => n.cf_persona).filter(Boolean) as string[])
+    return persone
+      .filter(p => !p.deleted_at && !cfInNodi.has(p.cf))
+      .sort((a, b) => (a.cognome ?? '').localeCompare(b.cognome ?? ''))
+  }, [persone, filtered])
+
+  const personeNonAssegnateFiltrate = useMemo(() => {
+    if (!unassignedSearch) return personeNonAssegnate
+    const lower = unassignedSearch.toLowerCase()
+    return personeNonAssegnate.filter(p =>
+      p.cf.toLowerCase().includes(lower) ||
+      p.cognome?.toLowerCase().includes(lower) ||
+      p.nome?.toLowerCase().includes(lower)
+    )
+  }, [personeNonAssegnate, unassignedSearch])
 
   useEffect(() => {
     if (!initializedRef.current && filtered.length > 0) {
@@ -311,6 +369,39 @@ export default function PosizioniCanvas() {
     return map
   }, [filtered])
 
+  // ── Raggruppamento nodi con stesso nome UO (solo foglie) ──────────────────────
+  const [groupedNodiResult, groupedPersonsMap] = useMemo((): [NodoOrganigramma[], Map<string, NodoOrganigramma[]>] => {
+    if (!groupByName) return [drilledNodi, new Map()]
+    // hasChildrenSet dal dataset COMPLETO: un responsabile che ha figli fuori dal drill corrente
+    // non deve essere raggruppato con le persone semplici della stessa UO
+    const hasChildrenInFull = new Set(filtered.map(n => n.reports_to).filter(Boolean) as string[])
+    const grouped = new Map<string, NodoOrganigramma[]>()
+    const branches: NodoOrganigramma[] = []
+    drilledNodi.forEach(n => {
+      if (hasChildrenInFull.has(n.id)) {
+        branches.push(n)
+      } else {
+        const key = `${n.reports_to ?? '__ROOT__'}|||${n.nome_uo ?? n.id}`
+        if (!grouped.has(key)) grouped.set(key, [])
+        grouped.get(key)!.push(n)
+      }
+    })
+    const result: NodoOrganigramma[] = [...branches]
+    const gpMap = new Map<string, NodoOrganigramma[]>()
+    grouped.forEach((group) => {
+      if (group.length === 1) {
+        result.push(group[0])
+      } else {
+        const first = group[0]
+        const safeName = (first.nome_uo ?? first.id).replace(/[^a-zA-Z0-9]/g, '_').slice(0, 20)
+        const virtualId = `grp_${first.reports_to ?? 'root'}_${safeName}`
+        result.push({ ...first, id: virtualId })
+        gpMap.set(virtualId, group)
+      }
+    })
+    return [result, gpMap]
+  }, [drilledNodi, groupByName, filtered])
+
   const visibleTree = useMemo(() => {
     function filterTree(nodes: TreeNode<NodoOrganigramma>[]): TreeNode<NodoOrganigramma>[] {
       return nodes.map(n => {
@@ -318,12 +409,43 @@ export default function PosizioniCanvas() {
         return { ...n, children: filterTree(n.children) }
       })
     }
-    const root = buildTree(drilledNodi, n => n.id, n => n.reports_to)
+    const root = buildTree(groupedNodiResult, n => n.id, n => n.reports_to)
     const metrics = analyzeTree(root)
+
+    // ── Dynamic vGap: prevent overlap when nodes are taller than default ────────
+    let vGap = 115
+    if (leafListMode || groupByName) {
+      const childrenOfId = new Map<string, string[]>()
+      groupedNodiResult.forEach(n => {
+        if (n.reports_to) {
+          if (!childrenOfId.has(n.reports_to)) childrenOfId.set(n.reports_to, [])
+          childrenOfId.get(n.reports_to)!.push(n.id)
+        }
+      })
+      let maxNodeHeight = 72
+      if (leafListMode) {
+        childrenOfId.forEach((children, _) => {
+          if (children.every(c => !childrenOfId.has(c))) {
+            // all-leaf parent → becomes leafList node
+            const listH = Math.min(children.length * 22 + 20, 212)
+            maxNodeHeight = Math.max(maxNodeHeight, 72 + listH)
+          }
+        })
+      }
+      if (groupByName) {
+        groupedPersonsMap.forEach(g => {
+          const listH = Math.min(g.length * 20 + 10, 154)
+          maxNodeHeight = Math.max(maxNodeHeight, 72 + listH)
+        })
+      }
+      vGap = Math.max(115, maxNodeHeight + 20)
+    }
+
     const cfg: LayoutConfig = {
       gridCols: metrics.dynamicGridCols,
       verticalStackingDepth: metrics.useVerticalStacking ? 7 : null,
-      forcedVerticalNodes: new Set()
+      forcedVerticalNodes: new Set(),
+      vGap,
     }
     const f = filterTree(root)
     layoutTree(f, 0, cfg)
@@ -342,7 +464,7 @@ export default function PosizioniCanvas() {
       iter++
     }
     return flattenTree(f)
-  }, [drilledNodi, collapsedSet])
+  }, [groupedNodiResult, collapsedSet, leafListMode, groupByName, groupedPersonsMap])
 
   const compactMode = useMemo(() => {
     const n = visibleTree.length
@@ -436,9 +558,9 @@ export default function PosizioniCanvas() {
   const collapseToRoot = useCallback(() => {
     const allIds = new Set(filtered.map(n => n.id))
     const rootIds = new Set(filtered.filter(n => !n.reports_to || !allIds.has(n.reports_to)).map(n => n.id))
-    drillTo(0, () => {
+    drillTo(null, () => {
       setCollapsedSet(new Set(filtered.filter(n => !rootIds.has(n.id)).map(n => n.id)))
-      setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 50)
+      setTimeout(() => fitView({ padding: 0.2, duration: 400, minZoom: 0.7 }), 50)
     })
   }, [filtered, drillTo, fitView])
 
@@ -458,67 +580,123 @@ export default function PosizioniCanvas() {
     const prevIds = prevVisibleIdsRef.current
     const newParentCount = new Map<string, number>()
 
-    const treeNodes = visibleTree.map(tn => {
-      const totalChildren = childCountMap.get(tn.id) ?? 0
-      const isCollapsed = collapsedSet.has(tn.id)
-      const isOverflowed = false
-      const hiddenCount = 0
-
-      const getVal = (): string => {
-        if (colorMode === 'sede') return tn.item.sede ?? ''
-        if (colorMode === 'funzione') return tn.item.funzione ?? ''
-        return tn.item.tipo_nodo ?? ''
-      }
-      const colorScheme = colorMode !== 'none' ? colorMap.get(getVal()) : undefined
-      const focusStyle: React.CSSProperties = activePath
-        ? { opacity: activePath.has(tn.id) ? 1 : 0.2, transition: 'opacity 100ms' }
-        : { transition: 'opacity 150ms' }
-
-      const isNew = !prevIds.has(tn.id)
-      let entranceDelay: number | undefined
-      if (isNew) {
-        const parentKey = tn.item.reports_to ?? '__root__'
-        const sibIdx = newParentCount.get(parentKey) ?? 0
-        newParentCount.set(parentKey, sibIdx + 1)
-        entranceDelay = sibIdx * 40
-      }
-
-      return {
-        id: tn.id,
-        type: 'orgNode',
-        position: { x: tn.x, y: tn.y },
-        data: {
-          id: tn.id,
-          label: resolveField(tn.item, nodeFields[0]) ?? tn.id,
-          sublabel: resolveField(tn.item, nodeFields[1]),
-          extraDetail: resolveFieldWithPersona(tn.item, nodeFields[2], personaMap),
-          tipo: tn.item.tipo_nodo,
-          collapsed: isCollapsed, hasChildren: totalChildren > 0,
-          childrenCount: totalChildren, depth: tn.depth,
-          isOverflowed, hiddenCount, colorScheme,
-          semanticStatus: semanticStatusMap.get(tn.id),
-          entranceDelay, compact: compactMode,
-          onExpand: () => toggleCollapse(tn.id),
-          onExpandOverflow: () => {},
-          onOpenDrawer: () => openDrawer(tn.item)
-        },
-        className: highlightedNode === tn.id ? 'ring-2 ring-indigo-400 rounded-lg' : undefined,
-        style: focusStyle
+    // ── leafListMode: mappa parent → figli foglia da assorbire ────────────────
+    const childrenOf = new Map<string, Array<TreeNode<NodoOrganigramma>>>()
+    visibleTree.forEach(tn => {
+      if (tn.item.reports_to) {
+        const arr = childrenOf.get(tn.item.reports_to) ?? []
+        arr.push(tn)
+        childrenOf.set(tn.item.reports_to, arr)
       }
     })
+    const leafListMap = new Map<string, Array<TreeNode<NodoOrganigramma>>>()
+    if (leafListMode) {
+      visibleTree.forEach(tn => {
+        const children = childrenOf.get(tn.id) ?? []
+        if (
+          children.length > 0 &&
+          children.every(c => (childrenOf.get(c.id)?.length ?? 0) === 0) &&
+          children.every(c => !groupedPersonsMap.has(c.id)) // non assorbire nodi gruppo virtuale
+        ) {
+          leafListMap.set(tn.id, children)
+        }
+      })
+    }
+    const absorbedIds = new Set<string>()
+    leafListMap.forEach(children => children.forEach(c => absorbedIds.add(c.id)))
 
-    const treeEdges: Edge[] = visibleTree.filter(tn => tn.item.reports_to).map(tn => ({
-      id: `${tn.item.reports_to}-${tn.id}`,
-      source: tn.item.reports_to!,
-      target: tn.id,
-      type: 'orgEdge',
-      style: { stroke: '#475569', strokeWidth: 1.5 }
-    }))
+    const treeNodes = visibleTree
+      .filter(tn => !absorbedIds.has(tn.id))
+      .map(tn => {
+        const totalChildren = childCountMap.get(tn.id) ?? 0
+        const isCollapsed = collapsedSet.has(tn.id)
+
+        const getVal = (): string => {
+          if (colorMode === 'sede') return tn.item.sede ?? ''
+          if (colorMode === 'funzione') return tn.item.funzione ?? ''
+          return tn.item.tipo_nodo ?? ''
+        }
+        const colorScheme = colorMode !== 'none' ? colorMap.get(getVal()) : undefined
+        const focusStyle: React.CSSProperties = activePath
+          ? { opacity: activePath.has(tn.id) ? 1 : 0.2, transition: 'opacity 100ms' }
+          : { transition: 'opacity 150ms' }
+
+        const isNew = !prevIds.has(tn.id)
+        let entranceDelay: number | undefined
+        if (isNew) {
+          const parentKey = tn.item.reports_to ?? '__root__'
+          const sibIdx = newParentCount.get(parentKey) ?? 0
+          newParentCount.set(parentKey, sibIdx + 1)
+          entranceDelay = sibIdx * 40
+        }
+
+        const leafListChildren = leafListMap.get(tn.id)
+        const leafList = leafListChildren?.map(child => ({
+          id: child.id,
+          label: resolveFieldWithPersona(child.item, nodeFields[0], personaMap) ?? child.id,
+          sublabel: resolveFieldWithPersona(child.item, nodeFields[1], personaMap) ?? undefined,
+          tipo: child.item.tipo_nodo,
+          onOpenDrawer: () => openDrawer(child.item)
+        }))
+
+        const gpList = groupedPersonsMap.get(tn.id)
+        const groupedPersons = gpList?.map(n => ({
+          id: n.id,
+          // Label sempre = nome persona (ignora nodeFields[0] che sarebbe la stessa UO per tutti)
+          label: resolveFieldWithPersona(n, 'p:nome_completo', personaMap)
+            ?? resolveFieldWithPersona(n, nodeFields[0], personaMap)
+            ?? n.id,
+          sublabel: resolveFieldWithPersona(n, nodeFields[1], personaMap) ?? undefined,
+          onOpenDrawer: () => openDrawer(n)
+        }))
+
+        const hasChildrenFlag = leafList ? false : totalChildren > 0
+        const childrenCountVal = leafList ? leafListChildren!.length : totalChildren
+
+        return {
+          id: tn.id,
+          type: 'orgNode',
+          position: { x: tn.x, y: tn.y },
+          data: {
+            id: tn.id,
+            label: resolveFieldWithPersona(tn.item, nodeFields[0], personaMap) ?? tn.id,
+            sublabel: gpList ? `${gpList.length} persone` : resolveFieldWithPersona(tn.item, nodeFields[1], personaMap),
+            extraDetail: resolveFieldWithPersona(tn.item, nodeFields[2], personaMap),
+            tipo: tn.item.tipo_nodo,
+            collapsed: leafList ? false : isCollapsed,
+            hasChildren: hasChildrenFlag,
+            childrenCount: childrenCountVal,
+            depth: tn.depth,
+            isOverflowed: false, hiddenCount: 0, colorScheme,
+            semanticStatus: semanticStatusMap.get(tn.id),
+            alertDots: isPinned(tn.id) ? [{ color: 'yellow', title: 'Vista fissata' }] : undefined,
+            entranceDelay, compact: compactMode,
+            onExpand: () => toggleCollapse(tn.id),
+            onExpandOverflow: () => {},
+            onOpenDrawer: () => openDrawer(tn.item),
+            leafList,
+            groupedPersons,
+          },
+          className: highlightedNode === tn.id ? 'ring-2 ring-indigo-400 rounded-lg' : undefined,
+          style: focusStyle
+        }
+      })
+
+    const treeEdges: Edge[] = visibleTree
+      .filter(tn => tn.item.reports_to && !absorbedIds.has(tn.id))
+      .map(tn => ({
+        id: `${tn.item.reports_to}-${tn.id}`,
+        source: tn.item.reports_to!,
+        target: tn.id,
+        type: 'orgEdge',
+        style: { stroke: '#475569', strokeWidth: 1.5 }
+      }))
 
     return { nodes: treeNodes as Node[], edges: treeEdges }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, visibleTree, collapsedSet, childCountMap, highlightedNode,
-      toggleCollapse, drilledNodi, colorMode, colorMap, semanticStatusMap, activePath, compactMode, openDrawer, nodeFields, personaMap])
+      toggleCollapse, colorMode, colorMap, semanticStatusMap, activePath, compactMode,
+      openDrawer, nodeFields, personaMap, isPinned, leafListMode, groupedPersonsMap])
 
   useEffect(() => {
     prevVisibleIdsRef.current = new Set(nodes.filter(n => n.type === 'orgNode').map(n => n.id))
@@ -536,12 +714,12 @@ export default function PosizioniCanvas() {
   }, [nodes, dragTargetId, dragResetKey])
 
   useEffect(() => {
-    if (nodes.length > 0) setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 100)
+    if (nodes.length > 0) setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.7 }), 100)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayNodi, viewMode, drillRootId])
 
   useEffect(() => {
-    setTimeout(() => fitView({ padding: 0.15, duration: 300 }), 50)
+    setTimeout(() => fitView({ padding: 0.15, duration: 300, minZoom: 0.7 }), 50)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawerOpen])
 
@@ -565,20 +743,18 @@ export default function PosizioniCanvas() {
   }, [nodes, setCenter])
 
   const handleFocusExpand = useCallback((nodeId: string) => {
-    const nodo = filtered.find(n => n.id === nodeId)
-    drillInto(nodeId, nodo?.nome_uo ?? nodeId, 'expand', () => {
+    drillInto(nodeId, 'expand', () => {
       setCollapsedSet(new Set())
-      setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
+      setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.7 }), 50)
     })
-  }, [filtered, drillInto, fitView])
+  }, [drillInto, fitView])
 
   const handleDrillIn = useCallback((nodeId: string) => {
-    const nodo = filtered.find(n => n.id === nodeId)
-    drillInto(nodeId, nodo?.nome_uo ?? nodeId, 'navigate', () => {
+    drillInto(nodeId, 'navigate', () => {
       setCollapsedSet(new Set())
-      setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
+      setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.7 }), 50)
     })
-  }, [filtered, drillInto, fitView])
+  }, [drillInto, fitView])
 
   const handleNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
@@ -648,7 +824,7 @@ export default function PosizioniCanvas() {
           )}
         </div>
 
-        {viewMode === 'tree' && drillPath.length <= 1 && (
+        {viewMode === 'tree' && !drillRootId && (
           <>
             <button onClick={() => setCollapsedSet(new Set())}
               className="text-sm text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-700 rounded-md transition-colors">
@@ -661,17 +837,42 @@ export default function PosizioniCanvas() {
           </>
         )}
 
-        {/* Drill breadcrumb */}
-        {viewMode === 'tree' && drillPath.length > 1 && (
+        {viewMode === 'tree' && (
+          <>
+            <button onClick={() => setGroupByName(g => !g)}
+              className={[
+                'px-2.5 py-1.5 text-xs rounded-md border transition-colors',
+                groupByName
+                  ? 'bg-violet-900/50 border-violet-600 text-violet-300 font-medium'
+                  : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+              ].join(' ')}
+              title="Raggruppa nodi foglia con lo stesso nome UO in una singola card">
+              ⊞ Raggruppa UO
+            </button>
+            <button onClick={() => setLeafListMode(m => !m)}
+              className={[
+                'px-2.5 py-1.5 text-xs rounded-md border transition-colors',
+                leafListMode
+                  ? 'bg-teal-900/50 border-teal-600 text-teal-300 font-medium'
+                  : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+              ].join(' ')}
+              title="Mostra le foglie come lista inline nel nodo padre (risparmia larghezza)">
+              ≡ Lista foglie
+            </button>
+          </>
+        )}
+
+        {/* Drill breadcrumb — derivato dalla gerarchia reale */}
+        {viewMode === 'tree' && drillRootId && (
           <div className="flex items-center gap-0.5 text-sm">
-            {drillPath.map((item, idx) => (
+            {drillBreadcrumb.map((item, idx) => (
               <React.Fragment key={idx}>
                 {idx > 0 && <span className="text-slate-600 mx-0.5">/</span>}
                 <button
-                  onClick={() => drillTo(idx, () => { setCollapsedSet(new Set()); setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50) })}
+                  onClick={() => drillTo(item.id, () => { setCollapsedSet(new Set()); setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.7 }), 50) })}
                   className={[
                     'px-1.5 py-0.5 rounded transition-colors max-w-[120px] truncate',
-                    idx === drillPath.length - 1
+                    idx === drillBreadcrumb.length - 1
                       ? 'text-slate-200 font-medium cursor-default'
                       : 'text-indigo-400 hover:text-indigo-200 hover:bg-slate-700'
                   ].join(' ')}
@@ -702,69 +903,103 @@ export default function PosizioniCanvas() {
         <div className="flex-1" />
 
         {/* Focus indicator */}
-        {focusedNode && drillPath.length <= 1 && (
+        {focusedNode && !drillRootId && (
           <div className="flex items-center gap-1.5 px-2 py-1 bg-indigo-900/30 border border-indigo-700 rounded-md text-xs text-indigo-300">
             <span className="truncate max-w-[150px]">{focusedLabel}</span>
             <button onClick={clearFocus}><X className="w-3 h-3" /></button>
           </div>
         )}
 
-        {/* Color mode */}
-        <select value={colorMode} onChange={e => setColorMode(e.target.value as ColorMode)}
-          className="text-sm bg-slate-800 border border-slate-600 rounded-md px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500">
-          <option value="none">Colora per…</option>
-          <option value="sede">Sede</option>
-          <option value="funzione">Funzione</option>
-          <option value="tipo_nodo">Tipo Nodo</option>
-        </select>
-
-        {/* Campi nodo */}
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-slate-500 whitespace-nowrap">Campi:</span>
-          {([0, 1, 2] as const).map(i => {
-            const opts = i === 2 ? NODE_FIELD_OPTIONS_P3 : NODE_FIELD_OPTIONS
-            return (
-              <select
-                key={i}
-                value={nodeFields[i]}
-                onChange={e => setNodeFields(prev => { const n = [...prev] as [string,string,string]; n[i] = e.target.value; return n })}
-                className="text-xs bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              >
-                {opts.filter(o => o.value === '' || o.value === nodeFields[i] || !nodeFields.includes(o.value)).map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+        {/* Campi nodo — checkbox panel */}
+        <div className="relative">
+          <button
+            onClick={() => setShowFieldsPanel(p => !p)}
+            className={[
+              'px-2.5 py-1.5 text-xs rounded-md border transition-colors whitespace-nowrap',
+              showFieldsPanel
+                ? 'bg-indigo-900/50 border-indigo-600 text-indigo-300 font-medium'
+                : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+            ].join(' ')}
+          >
+            Campi ({nodeFields.filter(Boolean).length}/3)
+          </button>
+          {showFieldsPanel && (
+            <div className="absolute top-full right-0 mt-1 w-64 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-20 overflow-hidden">
+              <div className="px-3 py-2 border-b border-slate-700 flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-300">Seleziona fino a 3 campi</span>
+                <button onClick={() => setNodeFields(['nome_uo', 'cf_persona', ''])} className="text-xs text-slate-500 hover:text-slate-300">reset</button>
+              </div>
+              <div className="max-h-80 overflow-y-auto">
+                {ALL_FIELD_OPTIONS.map(group => (
+                  <div key={group.group}>
+                    <div className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase tracking-wide bg-slate-900/50 sticky top-0">
+                      {group.group}
+                    </div>
+                    {group.fields.filter(f => f.value !== '').map(field => {
+                      const slotIdx = nodeFields.indexOf(field.value)
+                      const isSelected = slotIdx !== -1
+                      const canSelect = !isSelected && nodeFields.filter(Boolean).length < 3
+                      return (
+                        <button
+                          key={field.value}
+                          disabled={!isSelected && !canSelect}
+                          onClick={() => {
+                            if (isSelected) {
+                              setNodeFields(prev => { const n = [...prev] as [string,string,string]; n[slotIdx] = ''; return n })
+                            } else if (canSelect) {
+                              setNodeFields(prev => {
+                                const n = [...prev] as [string,string,string]
+                                const emptySlot = n.indexOf('')
+                                if (emptySlot !== -1) n[emptySlot] = field.value
+                                return n
+                              })
+                            }
+                          }}
+                          className={[
+                            'w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors',
+                            isSelected ? 'text-slate-200' : canSelect ? 'text-slate-400 hover:bg-slate-700 hover:text-slate-200' : 'text-slate-600 cursor-not-allowed'
+                          ].join(' ')}
+                        >
+                          {isSelected ? (
+                            <span className="w-4 h-4 rounded bg-indigo-600 text-white flex items-center justify-center flex-shrink-0 text-xs font-bold">{slotIdx + 1}</span>
+                          ) : (
+                            <span className="w-4 h-4 rounded border border-slate-600 flex-shrink-0" />
+                          )}
+                          <span className="text-xs">{field.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
                 ))}
-              </select>
-            )
-          })}
+              </div>
+              <div className="px-3 py-1.5 border-t border-slate-700 text-xs text-slate-500">
+                {nodeFields.filter(Boolean).map((f, i) => (
+                  <span key={i} className="mr-2">{i+1}: {ALL_FIELD_FLAT.find(o => o.value === f)?.label ?? f}</span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* LOD badge */}
-        <span className="text-xs text-slate-500 px-2 py-1 bg-slate-800 rounded border border-slate-700 tabular-nums">
-          {compactMode ? 'Compact' : zoom <= 0.4 ? 'Macro' : zoom <= 0.8 ? 'Standard' : 'Micro'}
-        </span>
+        {/* Persone non assegnate toggle */}
+        <button
+          onClick={() => setShowUnassigned(v => !v)}
+          className={[
+            'flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md border transition-colors',
+            showUnassigned
+              ? 'bg-amber-900/20 border-amber-700 text-amber-300'
+              : 'border-slate-600 text-slate-400 hover:text-slate-200',
+          ].join(' ')}
+        >
+          <span className={[
+            'inline-flex items-center justify-center w-4 h-4 rounded-full text-xs font-bold',
+            personeNonAssegnate.length > 0 ? 'bg-amber-500 text-slate-900' : 'bg-slate-600 text-slate-400'
+          ].join(' ')}>
+            {personeNonAssegnate.length}
+          </span>
+          Non in posizione
+        </button>
 
-        {/* View mode toggle */}
-        <div className="flex rounded-md border border-slate-600 overflow-hidden">
-          {(['tree', 'sede'] as const).map((vm, i) => (
-            <button key={vm} onClick={() => setViewMode(vm)}
-              className={[
-                'px-3 py-1.5 text-sm transition-colors',
-                i > 0 ? 'border-l border-slate-600' : '',
-                viewMode === vm ? 'bg-indigo-900/50 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-700'
-              ].join(' ')}>
-              {vm === 'tree' ? 'Albero' : 'Per Sede'}
-            </button>
-          ))}
-        </div>
-
-        {/* Sede filter (tree only) */}
-        {viewMode === 'tree' && (
-          <select value={sedeFiltro} onChange={e => setSedeFiltro(e.target.value)}
-            className="text-sm bg-slate-800 border border-slate-600 rounded-md px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500">
-            <option value="all">Tutte le sedi</option>
-            {sediList.map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
-          </select>
-        )}
       </div>
 
       {/* Color legend */}
@@ -780,6 +1015,91 @@ export default function PosizioniCanvas() {
       )}
 
       <div className="flex flex-1 min-h-0">
+        {/* Pannello sinistro: viste fissate + persone non in posizione */}
+        {(pins.length > 0 || showUnassigned) && (
+          <div className="w-56 flex-shrink-0 border-r border-slate-700 bg-slate-900/60 flex flex-col overflow-hidden">
+
+            {/* Sezione: Viste fissate */}
+            {pins.length > 0 && (
+              <>
+                <button
+                  onClick={() => setPinsExpanded(v => !v)}
+                  className="px-3 py-2 border-b border-slate-700 flex-shrink-0 w-full text-left hover:bg-slate-800/50 transition-colors"
+                >
+                  <span className="text-xs font-medium text-yellow-400 flex items-center gap-1.5">
+                    <Pin className="w-3 h-3" />
+                    Viste fissate ({pins.length})
+                    <span className="ml-auto text-slate-500">{pinsExpanded ? '▲' : '▼'}</span>
+                  </span>
+                </button>
+                {pinsExpanded && (
+                  <div className="flex-shrink-0 border-b border-slate-700">
+                    {[...pins].sort((a, b) => a.pinnedAt - b.pinnedAt).map(pin => (
+                      <div key={pin.id}
+                        className="flex items-center gap-1 px-2 py-1.5 hover:bg-slate-800 group cursor-pointer"
+                        onClick={() => {
+                          if (pinClickTimer.current) {
+                            clearTimeout(pinClickTimer.current)
+                            pinClickTimer.current = null
+                            handleFocusExpand(pin.id)
+                          } else {
+                            pinClickTimer.current = setTimeout(() => {
+                              pinClickTimer.current = null
+                              handleDrillIn(pin.id)
+                            }, 250)
+                          }
+                        }}
+                        title="Clic: naviga · Doppio clic: espandi sottoalbero"
+                      >
+                        <span className="flex-1 text-xs text-slate-200 truncate">{pin.label}</span>
+                        <button
+                          onClick={e => { e.stopPropagation(); removePin(pin.id) }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-slate-700"
+                        >
+                          <PinOff className="w-3 h-3 text-slate-500 hover:text-yellow-400" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Sezione: Non in posizione */}
+            {showUnassigned && (
+              <>
+                <div className="px-3 py-2 border-b border-slate-700 flex items-center justify-between flex-shrink-0">
+                  <span className="text-xs font-medium text-amber-400">
+                    Non in posizione ({personeNonAssegnate.length})
+                  </span>
+                </div>
+                <div className="px-2 py-1.5 border-b border-slate-800 flex-shrink-0">
+                  <input
+                    type="text"
+                    placeholder="Cerca..."
+                    value={unassignedSearch}
+                    onChange={e => setUnassignedSearch(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
+                  {personeNonAssegnateFiltrate.length === 0 ? (
+                    <p className="text-xs text-slate-600 italic text-center py-4">Nessuna</p>
+                  ) : personeNonAssegnateFiltrate.map(p => (
+                    <div key={p.cf} className="px-2 py-1.5 rounded bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50">
+                      <div className="text-xs font-medium text-slate-200 truncate">
+                        {p.cognome} {p.nome}
+                      </div>
+                      <div className="text-xs text-slate-500 font-mono truncate">{p.cf}</div>
+                      {p.area && <div className="text-xs text-slate-600 truncate">{p.area}</div>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         <div className="flex-1 min-w-0 relative">
           <ReactFlow
             nodes={derivedNodes}
@@ -827,6 +1147,12 @@ export default function PosizioniCanvas() {
           x={contextMenu.x} y={contextMenu.y}
           label={filtered.find(n => n.id === contextMenu.nodeId)?.nome_uo ?? contextMenu.nodeId}
           hasChildren={(childCountMap.get(contextMenu.nodeId) ?? 0) > 0}
+          isPinned={isPinned(contextMenu.nodeId)}
+          onPin={() => {
+            const nodo = filtered.find(n => n.id === contextMenu.nodeId)
+            addPin({ id: contextMenu.nodeId, label: nodo?.nome_uo ?? contextMenu.nodeId, mode: 'navigate', pinnedAt: Date.now() })
+          }}
+          onUnpin={() => removePin(contextMenu.nodeId)}
           onFocusExpand={() => handleFocusExpand(contextMenu.nodeId)}
           onDrillIn={() => handleDrillIn(contextMenu.nodeId)}
           onOpenDetail={() => { const n = filtered.find(n => n.id === contextMenu.nodeId); if (n) openDrawer(n) }}

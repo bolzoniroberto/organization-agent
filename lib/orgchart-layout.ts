@@ -1,8 +1,8 @@
 // Pure layout functions — no React imports
 
-const H_GAP = 260
-const V_GAP = 160
-const GRID_COLS = 6
+const H_GAP = 185
+const V_GAP = 115
+const GRID_COLS = 8
 
 export interface TreeNode<T> {
   item: T
@@ -27,6 +27,7 @@ export interface LayoutConfig {
   gridCols: number
   verticalStackingDepth: number | null
   forcedVerticalNodes: Set<string>
+  vGap?: number
 }
 
 export interface BoundingBox {
@@ -100,10 +101,11 @@ export function layoutTree<T>(
 ): number {
   if (nodes.length === 0) return startX
 
+  const vg = config.vGap ?? V_GAP
   let x = startX
 
   for (const node of nodes) {
-    node.y = node.depth * V_GAP
+    node.y = node.depth * vg
 
     const shouldStackVertically =
       config.forcedVerticalNodes.has(node.id) ||
@@ -114,24 +116,24 @@ export function layoutTree<T>(
       x += H_GAP
     } else if (shouldStackVertically) {
       node.x = x
-      let childY = (node.depth + 1) * V_GAP
+      let childY = (node.depth + 1) * vg
       let maxChildRight = x + H_GAP
       for (const child of node.children) {
         child.x = x + H_GAP * 0.2
         child.y = childY
         const childRight = layoutTree(child.children, child.x, config)
-        const yDelta = childY - child.depth * V_GAP
+        const yDelta = childY - child.depth * vg
         if (yDelta !== 0) {
           for (const desc of flattenTree(child.children)) {
             desc.y += yDelta
           }
         }
         if (childRight > maxChildRight) maxChildRight = childRight
-        childY += (getSubtreeDepth(child) + 1) * V_GAP
+        childY += (getSubtreeDepth(child) + 1) * vg
       }
       x = maxChildRight
     } else if (
-      node.children.length > 4 &&
+      node.children.length > 1 &&
       node.children.every(c => c.children.length === 0)
     ) {
       const n = node.children.length
@@ -145,7 +147,7 @@ export function layoutTree<T>(
         const col = i % config.gridCols
         const row = Math.floor(i / config.gridCols)
         node.children[i].x = gridStartX + col * H_GAP
-        node.children[i].y = (node.depth + 1 + row) * V_GAP
+        node.children[i].y = (node.depth + 1 + row) * vg
       }
 
       x = gridStartX + gridWidth

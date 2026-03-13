@@ -1,12 +1,15 @@
 'use client'
 import React, { useEffect, useRef } from 'react'
-import { GitBranch, Navigation, FileText, X } from 'lucide-react'
+import { GitBranch, Navigation, FileText, X, Pin, PinOff } from 'lucide-react'
 
 interface NodeContextMenuProps {
   x: number
   y: number
   label: string
   hasChildren: boolean
+  isPinned: boolean
+  onPin: () => void
+  onUnpin: () => void
   onFocusExpand: () => void
   onDrillIn: () => void
   onOpenDetail: () => void
@@ -14,7 +17,7 @@ interface NodeContextMenuProps {
 }
 
 export default function NodeContextMenu({
-  x, y, label, hasChildren,
+  x, y, label, hasChildren, isPinned, onPin, onUnpin,
   onFocusExpand, onDrillIn, onOpenDetail, onClose
 }: NodeContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null)
@@ -68,6 +71,19 @@ export default function NodeContextMenu({
       </button>
 
       <div className="border-t border-slate-700 mt-1 pt-1">
+        {isPinned ? (
+          <button onClick={() => { onUnpin(); onClose() }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors text-left">
+            <PinOff className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+            <span>Rimuovi pin</span>
+          </button>
+        ) : (
+          <button onClick={() => { onPin(); onClose() }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-200 hover:bg-yellow-600/20 hover:text-yellow-200 transition-colors text-left">
+            <Pin className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+            <span>Fissa come vista</span>
+          </button>
+        )}
         <button onClick={onClose}
           className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-700 transition-colors text-left">
           <X className="w-3 h-3 shrink-0" />

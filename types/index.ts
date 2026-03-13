@@ -226,3 +226,10 @@ export interface CleaningProposal {
 }
 export type OrgSubTab = 'posizioni' | 'persone' | 'tns'
 export type TipoNodo = 'STRUTTURA' | 'PERSONA' | 'ANOMALIA'
+
+export interface PinnedView {
+  id: string
+  label: string
+  mode: 'navigate' | 'expand'
+  pinnedAt: number
+}

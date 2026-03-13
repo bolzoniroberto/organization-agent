@@ -34,20 +34,61 @@ const NODI_ALL_COLS = [
 const NODI_DEFAULT_VISIBLE = new Set(['id', 'reports_to', 'tipo_nodo', 'cf_persona', 'nome_uo', 'centro_costo', 'fte', 'job_title', 'sede'])
 
 const PERSONE_ALL_COLS = [
-  { field: 'cf', label: 'CF' },
-  { field: 'cognome', label: 'Cognome' },
-  { field: 'nome', label: 'Nome' },
-  { field: 'email', label: 'Email' },
-  { field: 'societa', label: 'Società' },
-  { field: 'area', label: 'Area' },
-  { field: 'qualifica', label: 'Qualifica' },
-  { field: 'tipo_contratto', label: 'Tipo Contratto' },
-  { field: 'sede', label: 'Sede' },
-  { field: 'modalita_presenze', label: 'Modalità Presenze' },
-  { field: 'cdc_amministrativo', label: 'CdC Amm.' },
-  { field: 'data_assunzione', label: 'Data Assunzione' },
+  // ── Anagrafica ──────────────────────────────────────────────────────────
+  { field: 'cf',                  label: 'CF' },
+  { field: 'cognome',             label: 'Cognome' },
+  { field: 'nome',                label: 'Nome' },
+  { field: 'data_nascita',        label: 'Data Nascita' },
+  { field: 'sesso',               label: 'Sesso' },
+  { field: 'email',               label: 'Email' },
+  { field: 'matricola',           label: 'Matricola' },
+  { field: 'societa',             label: 'Società' },
+  { field: 'area',                label: 'Area' },
+  { field: 'sotto_area',          label: 'Sotto Area' },
+  { field: 'cdc_amministrativo',  label: 'CdC Amm.' },
+  { field: 'sede',                label: 'Sede' },
+  { field: 'data_assunzione',     label: 'Data Assunzione' },
+  { field: 'data_fine_rapporto',  label: 'Fine Rapporto' },
+  { field: 'tipo_contratto',      label: 'Tipo Contratto' },
+  { field: 'qualifica',           label: 'Qualifica' },
+  { field: 'livello',             label: 'Livello' },
+  { field: 'modalita_presenze',   label: 'Presenze' },
+  { field: 'part_time',           label: 'Part Time' },
+  { field: 'ral',                 label: 'RAL' },
+  // ── TNS ORG ─────────────────────────────────────────────────────────────
+  { field: 'codice_tns',          label: 'Codice TNS' },
+  { field: 'padre_tns',           label: "UO Padre TNS" },
+  { field: 'livello_tns',         label: 'Livello TNS' },
+  { field: 'titolare_tns',        label: 'Titolare TNS' },
+  { field: 'tipo_approvatore',    label: 'Tipo Approvatore' },
+  { field: 'codice_approvatore',  label: 'Codice Approvatore' },
+  { field: 'sede_tns',            label: 'Sede TNS' },
+  { field: 'cdc_tns',             label: 'CdC TNS' },
+  { field: 'escluso_tns',         label: 'Escluso TNS' },
+  { field: 'ruoli_oltrv',         label: 'RUOLI OltreV' },
+  { field: 'ruoli_tns_desc',      label: 'RUOLI' },
+  { field: 'viaggiatore',         label: 'Viaggiatore' },
+  { field: 'segr_redaz',          label: 'Segr_Redaz' },
+  { field: 'approvatore',         label: 'Approvatore' },
+  { field: 'cassiere',            label: 'Cassiere' },
+  { field: 'visualizzatore',      label: 'Visualizzatori' },
+  { field: 'segretario',          label: 'Segretario' },
+  { field: 'controllore',         label: 'Controllore' },
+  { field: 'amministrazione',     label: 'Amministrazione' },
+  { field: 'segreteria_red_asst', label: 'Segreteria Red. Ass.ta' },
+  { field: 'segretario_asst',     label: 'Segretario Ass.to' },
+  { field: 'controllore_asst',    label: 'Controllore Ass.to' },
+  { field: 'ruoli_afc',           label: 'RuoliAFC' },
+  { field: 'ruoli_hr',            label: 'RuoliHR' },
+  { field: 'altri_ruoli',         label: 'AltriRuoli' },
+  { field: 'gruppo_sind',         label: 'GruppoSind' },
 ]
-const PERSONE_DEFAULT_VISIBLE = new Set(['cf', 'cognome', 'nome', 'email', 'societa', 'area', 'qualifica', 'sede'])
+const PERSONE_DEFAULT_VISIBLE = new Set([
+  'cf', 'cognome', 'nome', 'email', 'matricola',
+  'societa', 'area', 'qualifica', 'tipo_contratto', 'sede',
+  'data_assunzione', 'cdc_amministrativo',
+  'codice_tns', 'padre_tns', 'livello_tns', 'sede_tns',
+])
 
 // 26 colonne esatte del formato TNS ORG (stessa struttura del file Excel)
 const TNS_ALL_COLS = [
@@ -210,19 +251,58 @@ export default function AnagraficaView() {
     const base: ColDef[] = [
       { headerCheckboxSelection: true, checkboxSelection: true, width: 40, minWidth: 40, maxWidth: 40, pinned: 'left' as const, sortable: false, filter: false, floatingFilter: false, editable: false, suppressFillHandle: true, resizable: false, suppressMovable: true },
     ]
+    const xs = 'text-xs text-slate-400'
+    const mono = 'font-mono text-xs text-slate-400'
+    const tns = 'text-xs text-green-300/70'
     const colMap: Record<string, ColDef> = {
-      cf: { field: 'cf', headerName: 'CF', width: 160, editable: false, suppressFillHandle: true, cellClass: 'font-mono text-xs text-slate-400' },
-      cognome: { field: 'cognome', headerName: 'Cognome', flex: 1.5, editable: true, cellClass: 'text-sm text-slate-200 font-medium' },
-      nome: { field: 'nome', headerName: 'Nome', flex: 1.5, editable: true, cellClass: 'text-sm text-slate-200' },
-      email: { field: 'email', headerName: 'Email', flex: 2, editable: true, cellClass: 'text-xs text-slate-400' },
-      societa: { field: 'societa', headerName: 'Società', width: 120, editable: true, cellClass: 'text-xs text-slate-400' },
-      area: { field: 'area', headerName: 'Area', flex: 1, editable: true, cellClass: 'text-xs text-slate-400' },
-      qualifica: { field: 'qualifica', headerName: 'Qualifica', flex: 1, editable: true, cellClass: 'text-xs text-slate-400' },
-      tipo_contratto: { field: 'tipo_contratto', headerName: 'Contratto', width: 110, editable: true, cellClass: 'text-xs text-slate-400' },
-      sede: { field: 'sede', headerName: 'Sede', width: 110, editable: true, cellClass: 'text-xs text-slate-400' },
-      modalita_presenze: { field: 'modalita_presenze', headerName: 'Presenze', width: 100, editable: true, cellClass: 'text-xs text-slate-400' },
-      cdc_amministrativo: { field: 'cdc_amministrativo', headerName: 'CdC Amm.', width: 110, editable: true, cellClass: 'text-xs text-slate-400' },
-      data_assunzione: { field: 'data_assunzione', headerName: 'Assunzione', width: 110, editable: true, cellClass: 'text-xs text-slate-400' },
+      // ── Anagrafica ──────────────────────────────────────────────────────
+      cf:                  { field: 'cf',                  headerName: 'CF',               width: 160, editable: false, suppressFillHandle: true, cellClass: mono, pinned: 'left' as const },
+      cognome:             { field: 'cognome',             headerName: 'Cognome',          flex: 1.5,  editable: true,  cellClass: 'text-sm text-slate-200 font-medium' },
+      nome:                { field: 'nome',                headerName: 'Nome',             flex: 1.5,  editable: true,  cellClass: 'text-sm text-slate-200' },
+      data_nascita:        { field: 'data_nascita',        headerName: 'Data Nascita',     width: 115, editable: true,  cellClass: xs },
+      sesso:               { field: 'sesso',               headerName: 'Sesso',            width: 75,  editable: true,  cellClass: xs },
+      email:               { field: 'email',               headerName: 'Email',            flex: 2,    editable: true,  cellClass: xs },
+      matricola:           { field: 'matricola',           headerName: 'Matricola',        width: 100, editable: true,  cellClass: mono },
+      societa:             { field: 'societa',             headerName: 'Società',          width: 120, editable: true,  cellClass: xs },
+      area:                { field: 'area',                headerName: 'Area',             flex: 1,    editable: true,  cellClass: xs },
+      sotto_area:          { field: 'sotto_area',          headerName: 'Sotto Area',       flex: 1,    editable: true,  cellClass: xs },
+      cdc_amministrativo:  { field: 'cdc_amministrativo',  headerName: 'CdC Amm.',         width: 110, editable: true,  cellClass: mono },
+      sede:                { field: 'sede',                headerName: 'Sede',             width: 110, editable: true,  cellClass: xs },
+      data_assunzione:     { field: 'data_assunzione',     headerName: 'Assunzione',       width: 110, editable: true,  cellClass: xs },
+      data_fine_rapporto:  { field: 'data_fine_rapporto',  headerName: 'Fine Rapporto',    width: 115, editable: true,  cellClass: xs },
+      tipo_contratto:      { field: 'tipo_contratto',      headerName: 'Contratto',        width: 110, editable: true,  cellClass: xs },
+      qualifica:           { field: 'qualifica',           headerName: 'Qualifica',        flex: 1,    editable: true,  cellClass: xs },
+      livello:             { field: 'livello',             headerName: 'Livello',          width: 90,  editable: true,  cellClass: xs },
+      modalita_presenze:   { field: 'modalita_presenze',   headerName: 'Presenze',         width: 100, editable: true,  cellClass: xs },
+      part_time:           { field: 'part_time',           headerName: 'Part Time',        width: 90,  editable: true,  type: 'numericColumn', cellClass: xs },
+      ral:                 { field: 'ral',                 headerName: 'RAL',              width: 100, editable: true,  type: 'numericColumn', cellClass: xs },
+      // ── TNS ORG ─────────────────────────────────────────────────────────
+      codice_tns:          { field: 'codice_tns',          headerName: 'Codice TNS',       width: 150, editable: true,  cellClass: `${mono} ${tns}` },
+      padre_tns:           { field: 'padre_tns',           headerName: "UO Padre TNS",     width: 150, editable: true,  cellClass: `${mono} ${tns}` },
+      livello_tns:         { field: 'livello_tns',         headerName: 'Livello TNS',      width: 100, editable: true,  cellClass: tns },
+      titolare_tns:        { field: 'titolare_tns',        headerName: 'Titolare TNS',     width: 140, editable: true,  cellClass: tns },
+      tipo_approvatore:    { field: 'tipo_approvatore',    headerName: 'Tipo Approvatore', width: 130, editable: true,  cellClass: tns },
+      codice_approvatore:  { field: 'codice_approvatore',  headerName: 'Cod. Approvatore', width: 130, editable: true,  cellClass: `${mono} ${tns}` },
+      sede_tns:            { field: 'sede_tns',            headerName: 'Sede TNS',         width: 110, editable: true,  cellClass: tns },
+      cdc_tns:             { field: 'cdc_tns',             headerName: 'CdC TNS',          width: 100, editable: true,  cellClass: `${mono} ${tns}` },
+      escluso_tns:         { field: 'escluso_tns',         headerName: 'Escluso TNS',      width: 100, editable: true,  cellClass: tns },
+      ruoli_oltrv:         { field: 'ruoli_oltrv',         headerName: 'RUOLI OltreV',     width: 130, editable: true,  cellClass: tns },
+      ruoli_tns_desc:      { field: 'ruoli_tns_desc',      headerName: 'RUOLI',            width: 130, editable: true,  cellClass: tns },
+      viaggiatore:         { field: 'viaggiatore',         headerName: 'Viaggiatore',      width: 100, editable: true,  cellClass: tns },
+      segr_redaz:          { field: 'segr_redaz',          headerName: 'Segr_Redaz',       width: 110, editable: true,  cellClass: tns },
+      approvatore:         { field: 'approvatore',         headerName: 'Approvatore',      width: 110, editable: true,  cellClass: tns },
+      cassiere:            { field: 'cassiere',            headerName: 'Cassiere',         width: 100, editable: true,  cellClass: tns },
+      visualizzatore:      { field: 'visualizzatore',      headerName: 'Visualizzatori',   width: 115, editable: true,  cellClass: tns },
+      segretario:          { field: 'segretario',          headerName: 'Segretario',       width: 100, editable: true,  cellClass: tns },
+      controllore:         { field: 'controllore',         headerName: 'Controllore',      width: 110, editable: true,  cellClass: tns },
+      amministrazione:     { field: 'amministrazione',     headerName: 'Amministrazione',  width: 130, editable: true,  cellClass: tns },
+      segreteria_red_asst: { field: 'segreteria_red_asst', headerName: 'Segret. Red. Ass.ta', width: 155, editable: true, cellClass: tns },
+      segretario_asst:     { field: 'segretario_asst',     headerName: 'Segretario Ass.to', width: 140, editable: true, cellClass: tns },
+      controllore_asst:    { field: 'controllore_asst',    headerName: 'Controllore Ass.to', width: 140, editable: true, cellClass: tns },
+      ruoli_afc:           { field: 'ruoli_afc',           headerName: 'RuoliAFC',         width: 110, editable: true,  cellClass: tns },
+      ruoli_hr:            { field: 'ruoli_hr',            headerName: 'RuoliHR',          width: 100, editable: true,  cellClass: tns },
+      altri_ruoli:         { field: 'altri_ruoli',         headerName: 'AltriRuoli',       width: 120, editable: true,  cellClass: tns },
+      gruppo_sind:         { field: 'gruppo_sind',         headerName: 'GruppoSind',       width: 120, editable: true,  cellClass: tns },
     }
     PERSONE_ALL_COLS.filter(c => personeVisible.has(c.field)).forEach(c => { if (colMap[c.field]) base.push(colMap[c.field]) })
     variabiliDef.filter(v => visibleVars.has(v.id) && (v.target === 'persona' || v.target === 'tutti')).forEach(v => {
@@ -337,8 +417,18 @@ export default function AnagraficaView() {
     return persone.filter(p => {
       if (!showDeleted && p.deleted_at) return false
       if (!search) return true
-      return p.cf?.toLowerCase().includes(lower) || p.cognome?.toLowerCase().includes(lower) ||
-        p.nome?.toLowerCase().includes(lower) || p.email?.toLowerCase().includes(lower)
+      return p.cf?.toLowerCase().includes(lower) ||
+        p.cognome?.toLowerCase().includes(lower) ||
+        p.nome?.toLowerCase().includes(lower) ||
+        p.email?.toLowerCase().includes(lower) ||
+        p.matricola?.toLowerCase().includes(lower) ||
+        p.societa?.toLowerCase().includes(lower) ||
+        p.area?.toLowerCase().includes(lower) ||
+        p.qualifica?.toLowerCase().includes(lower) ||
+        p.cdc_amministrativo?.toLowerCase().includes(lower) ||
+        p.codice_tns?.toLowerCase().includes(lower) ||
+        p.sede_tns?.toLowerCase().includes(lower) ||
+        p.padre_tns?.toLowerCase().includes(lower)
     })
   }, [persone, search, showDeleted])
 
