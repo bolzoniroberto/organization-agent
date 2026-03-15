@@ -46,6 +46,9 @@ export const api = {
 
     restore: (id: string): Promise<{ success: boolean }> =>
       fetch(u(`/api/org/${encodeURIComponent(id)}/restore`), { method: 'POST' }).then(r => json(r)),
+
+    suggestId: (prefix: string): Promise<{ id?: string; error?: string }> =>
+      fetch(u(`/api/org/suggest-id?prefix=${encodeURIComponent(prefix)}`)).then(r => json(r)),
   },
 
   persone: {

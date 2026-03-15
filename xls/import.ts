@@ -119,11 +119,46 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
     Object.entries(mapping).filter(([f]) => !f.startsWith('var_'))
   )
 
+  // Pre-build name→CF lookup for timesheet imports that use nome_supervisore
+  let nameToCfMap: Map<string, string[]> | null = null
+  if (entity === 'timesheet' && Object.keys(nativeMappings).includes('nome_supervisore')) {
+    nameToCfMap = new Map()
+    const persons = d.prepare('SELECT cf, cognome, nome FROM persone WHERE deleted_at IS NULL').all() as { cf: string; cognome: string | null; nome: string | null }[]
+    for (const p of persons) {
+      const cog = (p.cognome ?? '').trim().toUpperCase()
+      const nom = (p.nome ?? '').trim().toUpperCase()
+      if (!cog && !nom) continue
+      const key1 = `${cog} ${nom}`.trim()   // "COGNOME NOME"
+      const key2 = `${nom} ${cog}`.trim()   // "NOME COGNOME"
+      for (const k of [key1, key2]) {
+        if (!k) continue
+        const existing = nameToCfMap.get(k) ?? []
+        if (!existing.includes(p.cf)) existing.push(p.cf)
+        nameToCfMap.set(k, existing)
+      }
+    }
+  }
+
   const runImport = d.transaction(() => {
     for (const row of rows) {
       const mapped = applyMappingToRow(row, nativeMappings)
       const joinValue = mapped[joinKey]
       if (!joinValue) continue
+
+      // Risoluzione nome → CF per cf_supervisore
+      if (entity === 'timesheet' && nameToCfMap && mapped.nome_supervisore && !mapped.cf_supervisore) {
+        const nameKey = mapped.nome_supervisore.trim().toUpperCase()
+        const matches = nameToCfMap.get(nameKey)
+        if (matches && matches.length === 1) {
+          mapped.cf_supervisore = matches[0]
+        } else if (matches && matches.length > 1) {
+          anomalie.push({ tipo: 'NOME_AMBIGUO', dettaglio: `Nome supervisore "${mapped.nome_supervisore}" corrisponde a più CF: ${matches.join(', ')} — riga saltata` })
+          continue
+        } else {
+          anomalie.push({ tipo: 'NOME_NON_TROVATO', dettaglio: `Nome supervisore "${mapped.nome_supervisore}" non trovato in persone` })
+          continue
+        }
+      }
 
       // Lookup per joinKey (può essere diverso dalla PK naturale)
       let existing: Record<string, unknown> | undefined
@@ -269,9 +304,13 @@ export function importXls(options: ImportOptions): ImportReport | DryRunResult {
             entity === 'timesheet' ? 'supervisioni_timesheet' : entity === 'strutture_tns' ? 'strutture_tns' : 'persone'
           const pkField = naturalKey
 
+          // Campi virtuali (non colonne DB) da escludere sempre
+          const VIRTUAL_FIELDS = new Set(['nome_supervisore'])
+
           let updated = false
           for (const [field, newVal] of Object.entries(mapped)) {
             if (field === joinKey || field === naturalKey) continue  // non aggiornare la chiave
+            if (VIRTUAL_FIELDS.has(field)) continue  // campo virtuale, non colonna DB
             const oldVal = existing[field]
             if (mode === 'INTEGRATIVA' && (oldVal !== null && oldVal !== undefined && oldVal !== '')) continue
             if (String(oldVal ?? '') === String(newVal ?? '')) continue

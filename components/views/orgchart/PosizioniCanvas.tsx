@@ -2,9 +2,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import {
   ReactFlow, Background, Controls, MiniMap,
-  type Node, type Edge, type EdgeProps,
+  type Node, type Edge,
   BackgroundVariant, useReactFlow, useViewport,
-  BaseEdge,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Search, X, Pin, PinOff } from 'lucide-react'
@@ -15,12 +14,14 @@ import type { NodoOrganigramma, Persona } from '@/types'
 import OrgNode, { type OrgNodeData } from '@/components/orgchart/OrgNode'
 import OrgGroupNode from '@/components/orgchart/OrgGroupNode'
 import NodeContextMenu from '@/components/orgchart/NodeContextMenu'
-import RecordDrawer from '@/components/shared/RecordDrawer'
 import {
   buildTree, analyzeTree, layoutTree, flattenTree, getBoundingBox,
   findWidestHorizontalSubtree, type TreeNode, type LayoutConfig
 } from '@/lib/orgchart-layout'
 import { useOrgDrill } from '@/lib/use-org-drill'
+import { EDGE_TYPES } from '@/components/orgchart/OrgEdge'
+import TreemapView from '@/components/views/orgchart/TreemapView'
+import InfoDialog from '@/components/shared/InfoDialog'
 
 const NODE_TYPES = { orgNode: OrgNode, orgGroup: OrgGroupNode }
 const TARGET_RATIO = 1.8   // larghezza/altezza target — forza stacking verticale aggressivo
@@ -147,14 +148,6 @@ function buildColorMap(nodi: NodoOrganigramma[], mode: ColorMode): Map<string, C
   ]))
 }
 
-function OrgEdge({ id, sourceX, sourceY, targetX, targetY, style }: EdgeProps) {
-  // Bus-bar layout: vertical drop → shared horizontal bus → vertical drop to child
-  // Tutti i fratelli hanno stesso sourceY e targetY → midY identico → segmenti orizzontali si sovrappongono in un unico bus
-  const midY = (sourceY + targetY) / 2
-  const path = `M ${sourceX},${sourceY} L ${sourceX},${midY} L ${targetX},${midY} L ${targetX},${targetY}`
-  return <BaseEdge id={id} path={path} style={style} />
-}
-const EDGE_TYPES = { orgEdge: OrgEdge }
 
 function buildSedeLayout(
   nodi: NodoOrganigramma[],
@@ -251,24 +244,46 @@ function buildSedeLayout(
 }
 
 export default function PosizioniCanvas() {
-  const { nodi, persone, refreshAll } = useHRStore()
+  const { nodi, persone, refreshAll, hasDismissedReadabilityAlert, dismissReadabilityAlert } = useHRStore()
   const personaMap = useMemo(() => new Map(persone.map(p => [p.cf, p])), [persone])
   const filtered = useMemo(() => nodi.filter(n => !n.deleted_at), [nodi])
 
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set())
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [showReadabilityAlert, setShowReadabilityAlert] = useState(false)
   const [drawerRecord, setDrawerRecord] = useState<NodoOrganigramma | null>(null)
+  const [drawerInitialMode, setDrawerInitialMode] = useState<'view' | 'edit'>('view')
+  const [pendingAssign, setPendingAssign] = useState<{
+    nodeId: string; nodeLabel: string; cf: string; personName: string; existingCf?: string; existingName?: string
+  } | null>(null)
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<NodoOrganigramma[]>([])
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null)
   const [colorMode, setColorMode] = useState<ColorMode>('none')
   const [nodeFields, setNodeFields] = useState<[string, string, string]>(['nome_uo', 'cf_persona', ''])
   const [viewMode, setViewMode] = useState<'tree' | 'sede'>('tree')
+  const [visualMode, setVisualMode] = useState<'flow' | 'treemap'>('flow')
   const [sedeFiltro, setSedeFiltro] = useState<string>('all')
   const [focusedNode, setFocusedNode] = useState<string | null>(null)
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
   const prevVisibleIdsRef = useRef<Set<string>>(new Set())
   const compactModeRef = useRef(false)
+  const [leftPanelWidth, setLeftPanelWidth] = useState(240)
+  const [isResizingLeftPanel, setIsResizingLeftPanel] = useState(false)
+
+  useEffect(() => {
+    if (!isResizingLeftPanel) return
+    const handleMouseMove = (e: MouseEvent) => {
+      setLeftPanelWidth(Math.max(200, Math.min(e.clientX, 600)))
+    }
+    const handleMouseUp = () => setIsResizingLeftPanel(false)
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingLeftPanel])
   const { fitView, setCenter } = useReactFlow()
   const { zoom } = useViewport()
   const { drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
@@ -302,6 +317,7 @@ export default function PosizioniCanvas() {
   const [showFieldsPanel, setShowFieldsPanel] = useState(false)
   const [pinsExpanded, setPinsExpanded] = useState(true)
   const pinClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (pinClickTimer.current) clearTimeout(pinClickTimer.current) }, [])
   const { showToast } = useHRStore()
   const { pins, addPin, removePin, isPinned } = usePinnedViews()
 
@@ -413,7 +429,7 @@ export default function PosizioniCanvas() {
     const metrics = analyzeTree(root)
 
     // ── Dynamic vGap: prevent overlap when nodes are taller than default ────────
-    let vGap = 115
+    let vGap = 130
     if (leafListMode || groupByName) {
       const childrenOfId = new Map<string, string[]>()
       groupedNodiResult.forEach(n => {
@@ -422,23 +438,23 @@ export default function PosizioniCanvas() {
           childrenOfId.get(n.reports_to)!.push(n.id)
         }
       })
-      let maxNodeHeight = 72
+      let maxNodeHeight = 80
       if (leafListMode) {
         childrenOfId.forEach((children, _) => {
           if (children.every(c => !childrenOfId.has(c))) {
             // all-leaf parent → becomes leafList node
             const listH = Math.min(children.length * 22 + 20, 212)
-            maxNodeHeight = Math.max(maxNodeHeight, 72 + listH)
+            maxNodeHeight = Math.max(maxNodeHeight, 80 + listH)
           }
         })
       }
       if (groupByName) {
         groupedPersonsMap.forEach(g => {
           const listH = Math.min(g.length * 20 + 10, 154)
-          maxNodeHeight = Math.max(maxNodeHeight, 72 + listH)
+          maxNodeHeight = Math.max(maxNodeHeight, 80 + listH)
         })
       }
-      vGap = Math.max(115, maxNodeHeight + 20)
+      vGap = Math.max(130, maxNodeHeight + 20)
     }
 
     const cfg: LayoutConfig = {
@@ -551,8 +567,8 @@ export default function PosizioniCanvas() {
     }
   }, [pendingReparent, showToast, refreshAll])
 
-  const openDrawer = useCallback((n: NodoOrganigramma) => {
-    setDrawerRecord(n); setDrawerOpen(true); setFocusedNode(n.id)
+  const openDrawer = useCallback((n: NodoOrganigramma, mode: 'view' | 'edit' = 'view') => {
+    setDrawerRecord(n); setDrawerInitialMode(mode); setDrawerOpen(true); setFocusedNode(n.id)
   }, [])
 
   const collapseToRoot = useCallback(() => {
@@ -571,6 +587,65 @@ export default function PosizioniCanvas() {
       return next
     })
   }, [])
+
+  const handleDropPersonOnNode = useCallback((nodeId: string, cf: string) => {
+    const nodo = filtered.find(n => n.id === nodeId)
+    if (!nodo) return
+    const persona = persone.find(p => p.cf === cf)
+    if (!persona) return
+    const personName = `${persona.cognome ?? ''} ${persona.nome ?? ''}`.trim() || cf
+    if (nodo.cf_persona && nodo.cf_persona !== cf) {
+      const existingP = persone.find(p => p.cf === nodo.cf_persona)
+      const existingName = existingP ? `${existingP.cognome ?? ''} ${existingP.nome ?? ''}`.trim() : nodo.cf_persona
+      setPendingAssign({ nodeId, nodeLabel: nodo.nome_uo ?? nodeId, cf, personName, existingCf: nodo.cf_persona, existingName })
+    } else {
+      setPendingAssign({ nodeId, nodeLabel: nodo.nome_uo ?? nodeId, cf, personName })
+    }
+  }, [filtered, persone])
+
+  const handleConfirmAssign = useCallback(async () => {
+    if (!pendingAssign) return
+    try {
+      await api.org.update(pendingAssign.nodeId, { cf_persona: pendingAssign.cf })
+      showToast(`${pendingAssign.personName} assegnato a ${pendingAssign.nodeLabel}`, 'success')
+      await refreshAll()
+    } catch (e) {
+      showToast(String(e), 'error')
+    } finally {
+      setPendingAssign(null)
+    }
+  }, [pendingAssign, showToast, refreshAll])
+
+  const pendingOpenNodeIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!pendingOpenNodeIdRef.current) return
+    const node = filtered.find(n => n.id === pendingOpenNodeIdRef.current)
+    if (node) {
+      pendingOpenNodeIdRef.current = null
+      openDrawer(node, 'edit')
+    }
+  }, [filtered, openDrawer])
+
+  const handleCreateChildNode = useCallback(async (parentId: string) => {
+    const parent = filtered.find(n => n.id === parentId)
+    if (!parent) return
+    try {
+      const res = await api.org.suggestId(parentId)
+      if (!res.id) { showToast(res.error ?? 'Errore suggest-id', 'error'); return }
+      const cr = await api.org.create({
+        id: res.id,
+        reports_to: parentId,
+        nome_uo: parent.nome_uo ?? undefined,
+        tipo_nodo: 'STRUTTURA',
+      })
+      if (!cr.success) { showToast(cr.error ?? 'Errore creazione', 'error'); return }
+      pendingOpenNodeIdRef.current = res.id
+      await refreshAll()
+    } catch (e) {
+      showToast(String(e), 'error')
+    }
+  }, [filtered, showToast, refreshAll])
 
   const { nodes, edges } = useMemo(() => {
     if (viewMode === 'sede') {
@@ -674,6 +749,7 @@ export default function PosizioniCanvas() {
             onExpand: () => toggleCollapse(tn.id),
             onExpandOverflow: () => {},
             onOpenDrawer: () => openDrawer(tn.item),
+            onDropPerson: (cf: string) => handleDropPersonOnNode(tn.id, cf),
             leafList,
             groupedPersons,
           },
@@ -696,7 +772,14 @@ export default function PosizioniCanvas() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, visibleTree, collapsedSet, childCountMap, highlightedNode,
       toggleCollapse, colorMode, colorMap, semanticStatusMap, activePath, compactMode,
-      openDrawer, nodeFields, personaMap, isPinned, leafListMode, groupedPersonsMap])
+      openDrawer, nodeFields, personaMap, isPinned, leafListMode, groupedPersonsMap, handleDropPersonOnNode])
+
+  // Trigger readability alert if tree grows too big
+  useEffect(() => {
+    if (viewMode === 'tree' && visualMode === 'flow' && !hasDismissedReadabilityAlert && nodes.length > 150) {
+      setShowReadabilityAlert(true)
+    }
+  }, [nodes.length, viewMode, visualMode, hasDismissedReadabilityAlert])
 
   useEffect(() => {
     prevVisibleIdsRef.current = new Set(nodes.filter(n => n.type === 'orgNode').map(n => n.id))
@@ -837,7 +920,29 @@ export default function PosizioniCanvas() {
           </>
         )}
 
+        {/* Visual Mode Toggle (Flow vs Treemap) */}
         {viewMode === 'tree' && (
+          <div className="flex bg-slate-800 p-0.5 rounded-md border border-slate-700">
+            <button
+              onClick={() => setVisualMode('flow')}
+              className={`px-3 py-1 text-xs rounded-sm transition-colors ${
+                visualMode === 'flow' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+              }`}
+            >
+              Organigramma
+            </button>
+            <button
+              onClick={() => setVisualMode('treemap')}
+              className={`px-3 py-1 text-xs rounded-sm transition-colors ${
+                visualMode === 'treemap' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+              }`}
+            >
+              Treemap
+            </button>
+          </div>
+        )}
+
+        {viewMode === 'tree' && visualMode === 'flow' && (
           <>
             <button onClick={() => setGroupByName(g => !g)}
               className={[
@@ -1017,7 +1122,15 @@ export default function PosizioniCanvas() {
       <div className="flex flex-1 min-h-0">
         {/* Pannello sinistro: viste fissate + persone non in posizione */}
         {(pins.length > 0 || showUnassigned) && (
-          <div className="w-56 flex-shrink-0 border-r border-slate-700 bg-slate-900/60 flex flex-col overflow-hidden">
+          <div 
+            className="flex-shrink-0 border-r border-slate-700 bg-slate-900/60 flex flex-col overflow-hidden relative"
+            style={{ width: leftPanelWidth }}
+          >
+            {/* Resize handle */}
+            <div
+              className={`absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-indigo-500/50 transition-colors ${isResizingLeftPanel ? 'bg-indigo-500' : ''}`}
+              onMouseDown={() => setIsResizingLeftPanel(true)}
+            />
 
             {/* Sezione: Viste fissate */}
             {pins.length > 0 && (
@@ -1086,7 +1199,13 @@ export default function PosizioniCanvas() {
                   {personeNonAssegnateFiltrate.length === 0 ? (
                     <p className="text-xs text-slate-600 italic text-center py-4">Nessuna</p>
                   ) : personeNonAssegnateFiltrate.map(p => (
-                    <div key={p.cf} className="px-2 py-1.5 rounded bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50">
+                    <div
+                      key={p.cf}
+                      draggable
+                      onDragStart={e => { e.dataTransfer.setData('person-cf', p.cf); e.dataTransfer.effectAllowed = 'copy' }}
+                      className="px-2 py-1.5 rounded bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 cursor-grab active:cursor-grabbing"
+                      title="Trascina su un nodo per assegnare"
+                    >
                       <div className="text-xs font-medium text-slate-200 truncate">
                         {p.cognome} {p.nome}
                       </div>
@@ -1101,32 +1220,40 @@ export default function PosizioniCanvas() {
         )}
 
         <div className="flex-1 min-w-0 relative">
-          <ReactFlow
-            nodes={derivedNodes}
-            edges={edges}
-            nodeTypes={NODE_TYPES}
-            edgeTypes={EDGE_TYPES}
-            fitView
-            fitViewOptions={{ padding: 0.15 }}
-            minZoom={0.1}
-            maxZoom={2}
-            proOptions={{ hideAttribution: true }}
-            nodesDraggable={dragEditMode}
-            onNodeClick={dragEditMode ? undefined : handleNodeClick}
-            onNodeContextMenu={handleNodeContextMenu}
-            onNodeDoubleClick={handleNodeDoubleClick}
-            onPaneClick={handlePaneClick}
-            onNodeMouseEnter={(_, node) => { if (node.type === 'orgNode') setHoveredNode(node.id) }}
-            onNodeMouseLeave={() => setHoveredNode(null)}
-            onNodeDrag={dragEditMode ? handleNodeDrag : undefined}
-            onNodeDragStop={dragEditMode ? handleNodeDragStop : undefined}
-            style={{ background: '#0f172a', cursor: dragEditMode ? 'grab' : undefined }}
-          >
-            <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#334155" />
-            <Controls position="bottom-right" className="!shadow-none !border !border-slate-700 !rounded-lg overflow-hidden" />
-            <MiniMap position="bottom-left" className="!border !border-slate-700 !rounded-lg"
-              style={{ width: 120, height: 80, background: '#1e293b' }} nodeColor="#334155" />
-          </ReactFlow>
+          {visualMode === 'treemap' ? (
+            <TreemapView 
+              data={drilledNodi} 
+              rootId={drillRootId || undefined} 
+              onNodeClick={(id) => drillInto(id, 'navigate', () => setVisualMode('flow'))}
+            />
+          ) : (
+            <ReactFlow
+              nodes={derivedNodes}
+              edges={edges}
+              nodeTypes={NODE_TYPES}
+              edgeTypes={EDGE_TYPES}
+              fitView
+              fitViewOptions={{ padding: 0.15 }}
+              minZoom={0.1}
+              maxZoom={2}
+              proOptions={{ hideAttribution: true }}
+              nodesDraggable={dragEditMode}
+              onNodeClick={dragEditMode ? undefined : handleNodeClick}
+              onNodeContextMenu={handleNodeContextMenu}
+              onNodeDoubleClick={handleNodeDoubleClick}
+              onPaneClick={handlePaneClick}
+              onNodeMouseEnter={(_, node) => { if (node.type === 'orgNode') setHoveredNode(node.id) }}
+              onNodeMouseLeave={() => setHoveredNode(null)}
+              onNodeDrag={dragEditMode ? handleNodeDrag : undefined}
+              onNodeDragStop={dragEditMode ? handleNodeDragStop : undefined}
+              style={{ background: '#0f172a', cursor: dragEditMode ? 'grab' : undefined }}
+            >
+              <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#334155" />
+              <Controls position="bottom-right" className="!shadow-none !border !border-slate-700 !rounded-lg overflow-hidden" />
+              <MiniMap position="bottom-left" className="!border !border-slate-700 !rounded-lg"
+                style={{ width: 120, height: 80, background: '#1e293b' }} nodeColor="#334155" />
+            </ReactFlow>
+          )}
         </div>
 
         {drawerOpen && (
@@ -1134,7 +1261,7 @@ export default function PosizioniCanvas() {
             <RecordDrawer
               variant="panel" open={drawerOpen}
               type="nodo" record={drawerRecord}
-              initialMode="view"
+              initialMode={drawerInitialMode}
               onClose={() => { setDrawerOpen(false); setFocusedNode(null) }}
               onSaved={refreshAll}
             />
@@ -1156,6 +1283,7 @@ export default function PosizioniCanvas() {
           onFocusExpand={() => handleFocusExpand(contextMenu.nodeId)}
           onDrillIn={() => handleDrillIn(contextMenu.nodeId)}
           onOpenDetail={() => { const n = filtered.find(n => n.id === contextMenu.nodeId); if (n) openDrawer(n) }}
+          onCreateChild={() => handleCreateChildNode(contextMenu.nodeId)}
           onClose={() => setContextMenu(null)}
         />
       )}
@@ -1192,12 +1320,64 @@ export default function PosizioniCanvas() {
         </div>
       )}
 
+      {/* Assign person confirmation modal */}
+      {pendingAssign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-96 p-6 flex flex-col gap-4">
+            <h3 className="text-sm font-semibold text-slate-200">Assegna persona</h3>
+            <p className="text-sm text-slate-400">
+              Assegna <span className="text-indigo-300 font-medium">{pendingAssign.personName}</span> al nodo{' '}
+              <span className="text-slate-100 font-medium">{pendingAssign.nodeLabel}</span>?
+            </p>
+            {pendingAssign.existingCf && (
+              <p className="text-xs text-amber-400">
+                Attenzione: sostituisce <span className="font-medium">{pendingAssign.existingName ?? pendingAssign.existingCf}</span> attualmente assegnato.
+              </p>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setPendingAssign(null)}
+                className="px-4 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleConfirmAssign}
+                className="px-4 py-1.5 text-sm bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg transition-colors"
+              >
+                Assegna
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Drag mode banner */}
       {dragEditMode && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 px-4 py-2 bg-amber-900/80 border border-amber-600 rounded-full text-xs text-amber-200 pointer-events-none shadow-lg">
           Trascina un nodo sopra un altro per cambiarne il responsabile
         </div>
       )}
+      {/* Modale Alert Leggibilità */}
+      <InfoDialog
+        open={showReadabilityAlert}
+        title="Vista Complessa"
+        confirmLabel="Ho capito"
+        onClose={() => {
+          setShowReadabilityAlert(false)
+          dismissReadabilityAlert()
+        }}
+        message={
+          <div className="space-y-3">
+            <p>
+              Attualmente ci sono molti nodi aperti contemporaneamente ed è difficile visualizzarli tutti agevolmente in questo formato.
+            </p>
+            <p>
+              Per una visione complessiva aggregata ti consigliamo di esplorare la nuova modalità <strong className="text-white">Treemap</strong> nella barra superiore, oppure di chiudere i nodi più estesi con &quot;Comprimi tutto&quot;.
+            </p>
+          </div>
+        }
+      />
     </div>
   )
 }

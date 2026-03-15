@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import type { PinnedView } from '@/types'
 
 const KEY = 'org-pinned-views'
@@ -22,7 +22,8 @@ export function usePinnedViews() {
     setPins(prev => prev.filter(p => p.id !== id))
   }, [])
 
-  const isPinned = useCallback((id: string) => pins.some(p => p.id === id), [pins])
+  const pinnedIds = useMemo(() => new Set(pins.map(p => p.id)), [pins])
+  const isPinned = useCallback((id: string) => pinnedIds.has(id), [pinnedIds])
 
   return { pins, addPin, removePin, isPinned }
 }

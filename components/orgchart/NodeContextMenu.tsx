@@ -1,6 +1,6 @@
 'use client'
 import React, { useEffect, useRef } from 'react'
-import { GitBranch, Navigation, FileText, X, Pin, PinOff } from 'lucide-react'
+import { GitBranch, Navigation, FileText, X, Pin, PinOff, PlusCircle } from 'lucide-react'
 
 interface NodeContextMenuProps {
   x: number
@@ -13,12 +13,13 @@ interface NodeContextMenuProps {
   onFocusExpand: () => void
   onDrillIn: () => void
   onOpenDetail: () => void
+  onCreateChild?: () => void
   onClose: () => void
 }
 
 export default function NodeContextMenu({
   x, y, label, hasChildren, isPinned, onPin, onUnpin,
-  onFocusExpand, onDrillIn, onOpenDetail, onClose
+  onFocusExpand, onDrillIn, onOpenDetail, onCreateChild, onClose
 }: NodeContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -69,6 +70,14 @@ export default function NodeContextMenu({
         <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
         <span>Apri dettaglio</span>
       </button>
+
+      {onCreateChild && (
+        <button onClick={() => { onCreateChild(); onClose() }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-200 hover:bg-green-700/30 hover:text-green-200 transition-colors text-left">
+          <PlusCircle className="w-3.5 h-3.5 text-green-400 shrink-0" />
+          <span>Nuova posizione a riporto</span>
+        </button>
+      )}
 
       <div className="border-t border-slate-700 mt-1 pt-1">
         {isPinned ? (

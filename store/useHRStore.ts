@@ -22,6 +22,9 @@ interface HRStore {
   loading: boolean
   setLoading: (v: boolean) => void
 
+  hasDismissedReadabilityAlert: boolean
+  dismissReadabilityAlert: () => void
+
   toast: { message: string; type: 'success' | 'error' | 'warning' | 'info' } | null
   showToast: (message: string, type?: 'success' | 'error' | 'warning') => void
   clearToast: () => void
@@ -52,6 +55,9 @@ export const useHRStore = create<HRStore>((set, get) => ({
   loading: false,
 
   setLoading: (v) => set({ loading: v }),
+
+  hasDismissedReadabilityAlert: false,
+  dismissReadabilityAlert: () => set({ hasDismissedReadabilityAlert: true }),
 
   toast: null,
   showToast: (message, type = 'success') => {

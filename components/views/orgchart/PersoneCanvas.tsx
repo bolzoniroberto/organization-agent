@@ -2,9 +2,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import {
   ReactFlow, Background, Controls, MiniMap,
-  type Node, type Edge, type EdgeProps,
+  type Node, type Edge,
   BackgroundVariant, useReactFlow, useViewport,
-  BaseEdge, getSmoothStepPath, Position
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Search, X } from 'lucide-react'
@@ -19,6 +18,7 @@ import {
   findWidestHorizontalSubtree, type TreeNode, type LayoutConfig
 } from '@/lib/orgchart-layout'
 import { useOrgDrill } from '@/lib/use-org-drill'
+import { EDGE_TYPES } from '@/components/orgchart/OrgEdge'
 
 const NODE_TYPES = { orgNode: OrgNode }
 const TARGET_RATIO = 1.8
@@ -26,7 +26,6 @@ const MAX_ITER = 5
 
 type ColorMode = 'none' | 'societa' | 'area'
 type ColorScheme = { border: string; bg: string }
-type NodeBox = { x: number; y: number; w: number; h: number }
 
 const NODE_FIELD_OPTIONS = [
   { value: '', label: '— nessuno —' },
@@ -60,25 +59,6 @@ function buildColorMap(
   ]))
 }
 
-function segmentIntersectsBox(x1: number, y1: number, x2: number, y2: number, box: NodeBox): boolean {
-  const midX = (x1 + x2) / 2
-  const minY = Math.min(y1, y2), maxY = Math.max(y1, y2)
-  return midX >= box.x && midX <= box.x + box.w && maxY >= box.y && minY <= box.y + box.h
-}
-
-function OrgEdge({ id, sourceX, sourceY, targetX, targetY, data, style }: EdgeProps) {
-  const obstructed = (data as { nodeBoxes?: NodeBox[] } | undefined)?.nodeBoxes?.some(
-    box => segmentIntersectsBox(sourceX, sourceY, targetX, targetY, box)
-  ) ?? false
-  const [path] = getSmoothStepPath({
-    sourceX, sourceY, sourcePosition: Position.Bottom,
-    targetX, targetY, targetPosition: Position.Top,
-    borderRadius: obstructed ? 8 : 5,
-    ...(obstructed ? { offset: 40 } : {})
-  })
-  return <BaseEdge id={id} path={path} style={style} />
-}
-const EDGE_TYPES = { orgEdge: OrgEdge }
 
 export default function PersoneCanvas() {
   const { timesheet, persone, refreshAll, showToast } = useHRStore()
@@ -100,6 +80,30 @@ export default function PersoneCanvas() {
     const p = personaMap.get(cf)
     return p ? `${p.cognome ?? ''} ${p.nome ?? ''}`.trim() || cf : cf
   }, [personaMap])
+
+  // Persone senza responsabile: cf_supervisore = null E non supervisano nessuno → lista "non in posizione"
+  const senzaResponsabile = useMemo((): SupervisioneTimesheet[] => {
+    const supervisorsSet = new Set(timesheet.map(t => t.cf_supervisore).filter(Boolean) as string[])
+    return timesheet.filter(t => t.cf_supervisore === null && !supervisorsSet.has(t.cf_dipendente))
+  }, [timesheet])
+
+  const senzaResponsabileCf = useMemo(() => new Set(senzaResponsabile.map(t => t.cf_dipendente)), [senzaResponsabile])
+
+  // Augmenta l'array timesheet (senza i "non in posizione") con record sintetici per supervisori
+  // che non hanno proprio record come dipendenti → diventano radici dell'albero.
+  const timesheetWithRoots = useMemo((): SupervisioneTimesheet[] => {
+    const forTree = timesheet.filter(t => !senzaResponsabileCf.has(t.cf_dipendente))
+    const dipendentiSet = new Set(forTree.map(t => t.cf_dipendente))
+    const toAdd: SupervisioneTimesheet[] = []
+    const seen = new Set<string>()
+    const queue = forTree.map(t => t.cf_supervisore).filter((cf): cf is string => !!cf && !dipendentiSet.has(cf))
+    for (const cf of queue) {
+      if (seen.has(cf)) continue
+      seen.add(cf)
+      toAdd.push({ cf_dipendente: cf, cf_supervisore: null, data_inizio: null, data_fine: null })
+    }
+    return toAdd.length > 0 ? [...forTree, ...toAdd] : forTree
+  }, [timesheet, senzaResponsabileCf])
 
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set())
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -123,13 +127,14 @@ export default function PersoneCanvas() {
     const ancestors: { id: string; label: string }[] = []
     let cur: string | null = drillRootId
     while (cur) {
-      const t = timesheet.find(t => t.cf_dipendente === cur)
+      const t = timesheetWithRoots.find(t => t.cf_dipendente === cur)
       if (!t) break
       ancestors.unshift({ id: cur, label: getLabel(cur) })
       cur = t.cf_supervisore ?? null
     }
     return [...items, ...ancestors]
-  }, [drillRootId, timesheet, getLabel])
+  }, [drillRootId, timesheetWithRoots, getLabel])
+
   const initializedRef = useRef(false)
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
   const [dragEditMode, setDragEditMode] = useState(false)
@@ -140,38 +145,54 @@ export default function PersoneCanvas() {
   } | null>(null)
   const [reparenting, setReparenting] = useState(false)
   const nodesRef = useRef<Node[]>([])
+  const [showUnassigned, setShowUnassigned] = useState(false)
+  const [unassignedSearch, setUnassignedSearch] = useState('')
+  const [leftPanelWidth, setLeftPanelWidth] = useState(240)
+  const [isResizingLeftPanel, setIsResizingLeftPanel] = useState(false)
+  const [pendingAssign, setPendingAssign] = useState<{
+    cf: string; personName: string; targetCf: string; targetName: string
+  } | null>(null)
 
   useEffect(() => {
-    if (!initializedRef.current && timesheet.length > 0) {
+    if (!isResizingLeftPanel) return
+    const onMove = (e: MouseEvent) => setLeftPanelWidth(Math.max(200, Math.min(e.clientX, 500)))
+    const onUp = () => setIsResizingLeftPanel(false)
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+  }, [isResizingLeftPanel])
+
+  useEffect(() => {
+    if (!initializedRef.current && timesheetWithRoots.length > 0) {
       initializedRef.current = true
-      setCollapsedSet(new Set(timesheet.map(t => t.cf_dipendente)))
+      setCollapsedSet(new Set(timesheetWithRoots.map(t => t.cf_dipendente)))
     }
-  }, [timesheet])
+  }, [timesheetWithRoots])
 
   const drilledTimesheet = useMemo(() => {
-    if (!drillRootId) return timesheet
+    if (!drillRootId) return timesheetWithRoots
     const visibleIds = new Set<string>()
     let cur: string | null = drillRootId
     while (cur) {
       visibleIds.add(cur)
-      cur = timesheet.find(t => t.cf_dipendente === cur)?.cf_supervisore ?? null
+      cur = timesheetWithRoots.find(t => t.cf_dipendente === cur)?.cf_supervisore ?? null
     }
     if (drillMode === 'expand') {
       function collectAll(id: string) {
-        timesheet.filter(t => t.cf_supervisore === id).forEach(t => { visibleIds.add(t.cf_dipendente); collectAll(t.cf_dipendente) })
+        timesheetWithRoots.filter(t => t.cf_supervisore === id).forEach(t => { visibleIds.add(t.cf_dipendente); collectAll(t.cf_dipendente) })
       }
       collectAll(drillRootId)
     } else {
-      timesheet.filter(t => t.cf_supervisore === drillRootId).forEach(t => visibleIds.add(t.cf_dipendente))
+      timesheetWithRoots.filter(t => t.cf_supervisore === drillRootId).forEach(t => visibleIds.add(t.cf_dipendente))
     }
-    return timesheet.filter(t => visibleIds.has(t.cf_dipendente))
-  }, [timesheet, drillRootId, drillMode])
+    return timesheetWithRoots.filter(t => visibleIds.has(t.cf_dipendente))
+  }, [timesheetWithRoots, drillRootId, drillMode])
 
   const childCountMap = useMemo(() => {
     const map = new Map<string, number>()
-    timesheet.forEach(t => { if (t.cf_supervisore) map.set(t.cf_supervisore, (map.get(t.cf_supervisore) ?? 0) + 1) })
+    timesheetWithRoots.forEach(t => { if (t.cf_supervisore) map.set(t.cf_supervisore, (map.get(t.cf_supervisore) ?? 0) + 1) })
     return map
-  }, [timesheet])
+  }, [timesheetWithRoots])
 
   const visibleTree = useMemo(() => {
     function filterTree(nodes: TreeNode<SupervisioneTimesheet>[]): TreeNode<SupervisioneTimesheet>[] {
@@ -216,46 +237,46 @@ export default function PersoneCanvas() {
   const colorMap = useMemo(() => buildColorMap(timesheet, colorMode, personaMap), [timesheet, colorMode, personaMap])
 
   const semanticStatusMap = useMemo(() => {
-    const supervisors = new Set(timesheet.map(t => t.cf_supervisore).filter(Boolean))
+    const supervisors = new Set(timesheetWithRoots.map(t => t.cf_supervisore).filter(Boolean))
     const out = new Map<string, 'active' | 'indirect' | 'empty'>()
-    timesheet.forEach(t => {
+    timesheetWithRoots.forEach(t => {
       out.set(t.cf_dipendente, supervisors.has(t.cf_dipendente) ? 'active' : 'empty')
     })
     return out
-  }, [timesheet])
+  }, [timesheetWithRoots])
 
   const focusPath = useMemo(() => {
     if (!focusedNode) return null
     const set = new Set<string>()
     let cur: string | null = focusedNode
-    while (cur) { set.add(cur); cur = timesheet.find(t => t.cf_dipendente === cur)?.cf_supervisore ?? null }
-    timesheet.filter(t => t.cf_supervisore === focusedNode).forEach(t => set.add(t.cf_dipendente))
+    while (cur) { set.add(cur); cur = timesheetWithRoots.find(t => t.cf_dipendente === cur)?.cf_supervisore ?? null }
+    timesheetWithRoots.filter(t => t.cf_supervisore === focusedNode).forEach(t => set.add(t.cf_dipendente))
     return set
-  }, [focusedNode, timesheet])
+  }, [focusedNode, timesheetWithRoots])
 
   const hoverPath = useMemo(() => {
     if (!hoveredNode) return null
     const set = new Set<string>()
     let cur: string | null = hoveredNode
-    while (cur) { set.add(cur); cur = timesheet.find(t => t.cf_dipendente === cur)?.cf_supervisore ?? null }
-    timesheet.filter(t => t.cf_supervisore === hoveredNode).forEach(t => set.add(t.cf_dipendente))
+    while (cur) { set.add(cur); cur = timesheetWithRoots.find(t => t.cf_dipendente === cur)?.cf_supervisore ?? null }
+    timesheetWithRoots.filter(t => t.cf_supervisore === hoveredNode).forEach(t => set.add(t.cf_dipendente))
     return set
-  }, [hoveredNode, timesheet])
+  }, [hoveredNode, timesheetWithRoots])
 
   const activePath = drillRootId ? null : (focusPath ?? hoverPath)
 
   // ── Drag-to-reparent ───────────────────────────────────────────────────────
   const isDescendant = useCallback((ancestorId: string, checkId: string): boolean => {
-    const children = timesheet.filter(t => t.cf_supervisore === ancestorId)
+    const children = timesheetWithRoots.filter(t => t.cf_supervisore === ancestorId)
     return children.some(c => c.cf_dipendente === checkId || isDescendant(c.cf_dipendente, checkId))
-  }, [timesheet])
+  }, [timesheetWithRoots])
 
   const handleNodeDrag = useCallback((_: React.MouseEvent, draggedNode: Node) => {
     const { x, y } = draggedNode.position
     const W = compactMode ? 160 : 220
     const H = compactMode ? 50 : 70
     const cx = x + W / 2, cy = y + H / 2
-    const currentParent = timesheet.find(t => t.cf_dipendente === draggedNode.id)?.cf_supervisore
+    const currentParent = timesheetWithRoots.find(t => t.cf_dipendente === draggedNode.id)?.cf_supervisore
     const target = nodesRef.current.find(n => {
       if (n.id === draggedNode.id || n.type !== 'orgNode') return false
       if (n.id === currentParent) return false
@@ -264,7 +285,7 @@ export default function PersoneCanvas() {
       return cx >= nx && cx <= nx + W && cy >= ny && cy <= ny + H
     })
     setDragTargetId(target?.id ?? null)
-  }, [timesheet, compactMode, isDescendant])
+  }, [timesheetWithRoots, compactMode, isDescendant])
 
   const handleNodeDragStop = useCallback((_: React.MouseEvent, draggedNode: Node) => {
     if (dragTargetId) {
@@ -304,13 +325,40 @@ export default function PersoneCanvas() {
   }, [personaMap])
 
   const collapseToRoot = useCallback(() => {
-    const allCfs = new Set(timesheet.map(t => t.cf_dipendente))
-    const rootIds = new Set(timesheet.filter(t => !t.cf_supervisore || !allCfs.has(t.cf_supervisore)).map(t => t.cf_dipendente))
+    const allCfs = new Set(timesheetWithRoots.map(t => t.cf_dipendente))
+    const rootIds = new Set(timesheetWithRoots.filter(t => !t.cf_supervisore || !allCfs.has(t.cf_supervisore)).map(t => t.cf_dipendente))
     drillTo(null, () => {
-      setCollapsedSet(new Set(timesheet.filter(t => !rootIds.has(t.cf_dipendente)).map(t => t.cf_dipendente)))
+      setCollapsedSet(new Set(timesheetWithRoots.filter(t => !rootIds.has(t.cf_dipendente)).map(t => t.cf_dipendente)))
       setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 50)
     })
-  }, [timesheet, drillTo, fitView])
+  }, [timesheetWithRoots, drillTo, fitView])
+
+  const handleDropPersonOnNode = useCallback((targetCf: string, droppedCf: string) => {
+    if (droppedCf === targetCf) return
+    setPendingAssign({
+      cf: droppedCf,
+      personName: getLabel(droppedCf),
+      targetCf,
+      targetName: getLabel(targetCf),
+    })
+  }, [getLabel])
+
+  const handleConfirmAssign = useCallback(async () => {
+    if (!pendingAssign) return
+    try {
+      const r = await api.timesheet.update(pendingAssign.cf, { cf_supervisore: pendingAssign.targetCf })
+      if (r.success) {
+        showToast(`${pendingAssign.personName} → ${pendingAssign.targetName}`, 'success')
+        await refreshAll()
+      } else {
+        showToast(r.error ?? 'Errore', 'error')
+      }
+    } catch (e) {
+      showToast(String(e), 'error')
+    } finally {
+      setPendingAssign(null)
+    }
+  }, [pendingAssign, showToast, refreshAll])
 
   const toggleCollapse = useCallback((id: string) => {
     setCollapsedSet(prev => {
@@ -323,7 +371,6 @@ export default function PersoneCanvas() {
   const { nodes, edges } = useMemo(() => {
     const prevIds = prevVisibleIdsRef.current
     const newParentCount = new Map<string, number>()
-    const nodeBoxes: NodeBox[] = visibleTree.map(tn => ({ x: tn.x, y: tn.y, w: 220, h: 90 }))
 
     const treeNodes = visibleTree.map(tn => {
       const cf = tn.id
@@ -367,7 +414,8 @@ export default function PersoneCanvas() {
           entranceDelay, compact: compactMode,
           onExpand: () => toggleCollapse(cf),
           onExpandOverflow: () => {},
-          onOpenDrawer: () => openDrawer(cf)
+          onOpenDrawer: () => openDrawer(cf),
+          onDropPerson: (droppedCf: string) => handleDropPersonOnNode(cf, droppedCf),
         },
         className: highlightedNode === cf ? 'ring-2 ring-indigo-400 rounded-lg' : undefined,
         style: focusStyle
@@ -377,14 +425,14 @@ export default function PersoneCanvas() {
     const treeEdges: Edge[] = visibleTree.filter(tn => tn.parentId).map(tn => ({
       id: `${tn.parentId}-${tn.id}`,
       source: tn.parentId!, target: tn.id,
-      type: 'orgEdge', data: { nodeBoxes },
+      type: 'orgEdge',
       style: { stroke: '#475569', strokeWidth: 1.5 }
     }))
 
     return { nodes: treeNodes as Node[], edges: treeEdges }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleTree, collapsedSet, childCountMap, highlightedNode,
-      toggleCollapse, colorMode, colorMap, semanticStatusMap, activePath, compactMode, openDrawer, personaMap, nodeFields, getPersonaField])
+      toggleCollapse, colorMode, colorMap, semanticStatusMap, activePath, compactMode, openDrawer, personaMap, nodeFields, getPersonaField, handleDropPersonOnNode])
 
   useEffect(() => {
     prevVisibleIdsRef.current = new Set(nodes.filter(n => n.type === 'orgNode').map(n => n.id))
@@ -470,6 +518,15 @@ export default function PersoneCanvas() {
   }, [])
 
   const focusedLabel = useMemo(() => getLabel(focusedNode ?? ''), [focusedNode, getLabel])
+
+  const senzaResponsabileFiltrate = useMemo(() => {
+    if (!unassignedSearch) return senzaResponsabile
+    const lower = unassignedSearch.toLowerCase()
+    return senzaResponsabile.filter(t => {
+      const label = getLabel(t.cf_dipendente).toLowerCase()
+      return label.includes(lower) || t.cf_dipendente.toLowerCase().includes(lower)
+    })
+  }, [senzaResponsabile, unassignedSearch, getLabel])
 
   if (timesheet.length === 0) {
     return (
@@ -587,6 +644,24 @@ export default function PersoneCanvas() {
           ))}
         </div>
 
+        <button
+          onClick={() => setShowUnassigned(v => !v)}
+          className={[
+            'flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md border transition-colors',
+            showUnassigned
+              ? 'bg-amber-900/20 border-amber-700 text-amber-300'
+              : 'border-slate-600 text-slate-400 hover:text-slate-200',
+          ].join(' ')}
+        >
+          <span className={[
+            'inline-flex items-center justify-center w-4 h-4 rounded-full text-xs font-bold',
+            senzaResponsabile.length > 0 ? 'bg-amber-500 text-slate-900' : 'bg-slate-600 text-slate-400'
+          ].join(' ')}>
+            {senzaResponsabile.length}
+          </span>
+          Senza responsabile
+        </button>
+
         <span className="text-xs text-slate-500 px-2 py-1 bg-slate-800 rounded border border-slate-700 tabular-nums">
           {compactMode ? 'Compact' : zoom <= 0.4 ? 'Macro' : zoom <= 0.8 ? 'Standard' : 'Micro'}
         </span>
@@ -605,6 +680,50 @@ export default function PersoneCanvas() {
       )}
 
       <div className="flex flex-1 min-h-0">
+        {/* Pannello sinistro: senza responsabile */}
+        {showUnassigned && (
+          <div
+            className="flex-shrink-0 border-r border-slate-700 bg-slate-900/60 flex flex-col overflow-hidden relative"
+            style={{ width: leftPanelWidth }}
+          >
+            <div
+              className={`absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-indigo-500/50 transition-colors ${isResizingLeftPanel ? 'bg-indigo-500' : ''}`}
+              onMouseDown={() => setIsResizingLeftPanel(true)}
+            />
+            <div className="px-3 py-2 border-b border-slate-700 flex-shrink-0">
+              <span className="text-xs font-medium text-amber-400">Senza responsabile ({senzaResponsabile.length})</span>
+              <p className="text-xs text-slate-500 mt-0.5">Trascina su un nodo per assegnare</p>
+            </div>
+            <div className="px-2 py-1.5 border-b border-slate-800 flex-shrink-0">
+              <input
+                type="text" placeholder="Cerca..."
+                value={unassignedSearch} onChange={e => setUnassignedSearch(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
+              {senzaResponsabileFiltrate.length === 0 ? (
+                <p className="text-xs text-slate-600 italic text-center py-4">Nessuno</p>
+              ) : senzaResponsabileFiltrate.map(t => {
+                const p = personaMap.get(t.cf_dipendente)
+                return (
+                  <div
+                    key={t.cf_dipendente}
+                    draggable
+                    onDragStart={e => { e.dataTransfer.setData('person-cf', t.cf_dipendente); e.dataTransfer.effectAllowed = 'copy' }}
+                    className="px-2 py-1.5 rounded bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 cursor-grab active:cursor-grabbing"
+                    title="Trascina su un nodo per assegnare il responsabile"
+                  >
+                    <div className="text-xs font-medium text-slate-200 truncate">{getLabel(t.cf_dipendente)}</div>
+                    <div className="text-xs text-slate-500 font-mono truncate">{t.cf_dipendente}</div>
+                    {p?.area && <div className="text-xs text-slate-600 truncate">{p.area}</div>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 min-w-0 relative">
           <ReactFlow
             nodes={derivedNodes} edges={edges}
@@ -678,6 +797,29 @@ export default function PersoneCanvas() {
               <button onClick={handleConfirmReparent} disabled={reparenting}
                 className="px-4 py-1.5 text-sm bg-green-700 hover:bg-green-600 text-white rounded-lg transition-colors disabled:opacity-50">
                 {reparenting ? 'Aggiorno…' : 'Conferma'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign supervisor confirmation modal */}
+      {pendingAssign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-96 p-6 flex flex-col gap-4">
+            <h3 className="text-sm font-semibold text-slate-200">Assegna responsabile</h3>
+            <p className="text-sm text-slate-400">
+              Assegna <span className="text-indigo-300 font-medium">{pendingAssign.personName}</span> come subordinato di{' '}
+              <span className="text-slate-100 font-medium">{pendingAssign.targetName}</span>?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setPendingAssign(null)}
+                className="px-4 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+                Annulla
+              </button>
+              <button onClick={handleConfirmAssign}
+                className="px-4 py-1.5 text-sm bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg transition-colors">
+                Conferma
               </button>
             </div>
           </div>

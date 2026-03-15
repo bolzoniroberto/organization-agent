@@ -63,7 +63,8 @@ const ENTITY_FIELDS: Record<EntityTarget, { field: string; label: string }[]> = 
   ],
   timesheet: [
     { field: 'cf_dipendente', label: 'CF Dipendente' },
-    { field: 'cf_supervisore', label: 'CF Supervisore (Primo responsabile)' },
+    { field: 'cf_supervisore', label: 'CF Supervisore (se disponibile)' },
+    { field: 'nome_supervisore', label: 'Nome Supervisore → risolve CF (es. "Descrizione Primo Responsabile")' },
     { field: 'data_inizio', label: 'Data Inizio' },
     { field: 'data_fine', label: 'Data Fine' },
   ],

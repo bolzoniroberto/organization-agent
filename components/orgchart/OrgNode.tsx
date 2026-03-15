@@ -23,6 +23,7 @@ export interface OrgNodeData {
   onExpand: () => void
   onExpandOverflow: () => void
   onOpenDrawer: () => void
+  onDropPerson?: (cf: string) => void
   /** Nodi foglia assorbiti inline (leafListMode) */
   leafList?: Array<{ id: string; label: string; sublabel?: string; tipo?: string; onOpenDrawer: () => void }>
   /** Persone raggruppate con stesso nome UO (groupByName) */
@@ -48,14 +49,23 @@ const TIPO_COLORS: Record<string, { dot: string; border: string }> = {
   TIMESHEET: { dot: 'bg-purple-400',  border: 'border-purple-700' },
 }
 
-const NODE_W = 170
+const NODE_W = 240
 
 const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
   const {
     label, sublabel, extraDetail, tipo, collapsed, hasChildren, childrenCount, depth,
     isOverflowed, hiddenCount, colorScheme, semanticStatus, alertDots, entranceDelay, compact,
-    onExpand, onExpandOverflow, onOpenDrawer, leafList, groupedPersons
+    onExpand, onExpandOverflow, onOpenDrawer, onDropPerson, leafList, groupedPersons
   } = data
+
+  const dropHandlers = onDropPerson ? {
+    onDragOver: (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      const cf = e.dataTransfer.getData('person-cf')
+      if (cf) onDropPerson(cf)
+    }
+  } : {}
   const isRoot = depth === 0
   const tipoColor = tipo ? (TIPO_COLORS[tipo] ?? TIPO_COLORS.STRUTTURA) : TIPO_COLORS.STRUTTURA
   const isLeaf = !hasChildren
@@ -116,13 +126,14 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
   if (compact) {
     return (
       <div className={containerClasses}
-        style={{ width: 145, height: 42, ...colorStyles, ...entranceStyle }}
+        style={{ width: 180, height: 48, ...colorStyles, ...entranceStyle }}
         onDoubleClick={(e) => { e.stopPropagation(); onOpenDrawer() }}
+        {...dropHandlers}
       >
         <Handle type="target" position={Position.Top} className="!bg-slate-500 !w-1.5 !h-1.5" />
         <div className="px-2 py-1 flex items-center gap-1.5 h-full">
           <span className="font-semibold text-slate-100 overflow-hidden flex-1"
-            style={{ fontSize: 11, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+            style={{ fontSize: 11, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
             {label}
           </span>
           {alertDots?.map((a, i) => <span key={i} className={`w-1.5 h-1.5 rounded-full flex-shrink-0 bg-${a.color}-400`} title={a.title} />)}
@@ -137,13 +148,14 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
   if (lod === 'macro') {
     return (
       <div className={containerClasses}
-        style={{ width: NODE_W, minHeight: 50, ...colorStyles, ...entranceStyle }}
+        style={{ width: NODE_W, minHeight: 56, ...colorStyles, ...entranceStyle }}
         onDoubleClick={(e) => { e.stopPropagation(); onOpenDrawer() }}
+        {...dropHandlers}
       >
         <Handle type="target" position={Position.Top} className="!bg-slate-500 !w-2 !h-2" />
         <div className="px-3 py-2 flex items-center gap-2 h-full">
           <span className="font-semibold text-white overflow-hidden flex-1"
-            style={{ fontSize: 12, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+            style={{ fontSize: 12, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
             {label}
           </span>
           {alertDots?.map((a, i) => <span key={i} className={`w-1.5 h-1.5 rounded-full flex-shrink-0 bg-${a.color}-400`} title={a.title} />)}
@@ -159,8 +171,9 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
     const hasList = (leafList && leafList.length > 0) || (groupedPersons && groupedPersons.length > 0)
     return (
       <div className={containerClasses}
-        style={{ width: NODE_W, minHeight: 56, ...colorStyles, ...entranceStyle }}
+        style={{ width: NODE_W, minHeight: 64, ...colorStyles, ...entranceStyle }}
         onDoubleClick={(e) => { e.stopPropagation(); onOpenDrawer() }}
+        {...dropHandlers}
       >
         <Handle type="target" position={Position.Top} className="!bg-slate-500 !w-2 !h-2" />
 
@@ -180,7 +193,7 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
             </div>
           )}
           <div className="font-bold text-white leading-snug overflow-hidden"
-            style={{ fontSize: 14, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+            style={{ fontSize: 14, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
             {label}
           </div>
           {sublabel && (
@@ -230,8 +243,9 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
   // ── Standard / Micro (nodo con figli) ────────────────────────────────────────
   return (
     <div className={containerClasses}
-      style={{ width: NODE_W, minHeight: 72, ...colorStyles, ...entranceStyle }}
+      style={{ width: NODE_W, minHeight: 80, ...colorStyles, ...entranceStyle }}
       onDoubleClick={(e) => { e.stopPropagation(); onOpenDrawer() }}
+      {...dropHandlers}
     >
       <Handle type="target" position={Position.Top} className="!bg-slate-500 !w-2 !h-2" />
 
@@ -251,7 +265,7 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
           </div>
         )}
         <div className="font-bold text-white leading-snug overflow-hidden"
-          style={{ fontSize: 14, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+          style={{ fontSize: 14, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
           {label}
         </div>
         {sublabel && (

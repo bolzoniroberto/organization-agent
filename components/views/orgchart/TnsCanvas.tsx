@@ -2,9 +2,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import {
   ReactFlow, Background, Controls, MiniMap,
-  type Node, type Edge, type EdgeProps,
+  type Node, type Edge,
   BackgroundVariant, useReactFlow, useViewport,
-  BaseEdge,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Search, X } from 'lucide-react'
@@ -19,6 +18,7 @@ import {
   findWidestHorizontalSubtree, type TreeNode, type LayoutConfig
 } from '@/lib/orgchart-layout'
 import { useOrgDrill } from '@/lib/use-org-drill'
+import { EDGE_TYPES } from '@/components/orgchart/OrgEdge'
 
 const NODE_TYPES = { orgNode: OrgNode, orgGroup: OrgGroupNode }
 const TARGET_RATIO = 1.8
@@ -44,13 +44,6 @@ function resolveField(s: StrutturaTns, field: string): string | null | undefined
   if (!field) return null
   return (s as unknown as Record<string, unknown>)[field] as string | null
 }
-
-function OrgEdge({ id, sourceX, sourceY, targetX, targetY, style }: EdgeProps) {
-  const midY = (sourceY + targetY) / 2
-  const path = `M ${sourceX},${sourceY} L ${sourceX},${midY} L ${targetX},${midY} L ${targetX},${targetY}`
-  return <BaseEdge id={id} path={path} style={style} />
-}
-const EDGE_TYPES = { orgEdge: OrgEdge }
 
 export default function TnsCanvas() {
   const { struttureTns, persone, refreshAll, showToast } = useHRStore()
@@ -174,7 +167,7 @@ export default function TnsCanvas() {
     const root = buildTree(groupedResult, s => s.codice, s => s.padre ?? null)
     const metrics = analyzeTree(root)
 
-    let vGap = 115
+    let vGap = 130
     if (leafListMode || groupByName) {
       const childrenOfId = new Map<string, string[]>()
       groupedResult.forEach(s => {
@@ -183,22 +176,22 @@ export default function TnsCanvas() {
           childrenOfId.get(s.padre)!.push(s.codice)
         }
       })
-      let maxNodeHeight = 72
+      let maxNodeHeight = 80
       if (leafListMode) {
         childrenOfId.forEach(children => {
           if (children.every(c => !childrenOfId.has(c))) {
             const listH = Math.min(children.length * 22 + 20, 212)
-            maxNodeHeight = Math.max(maxNodeHeight, 72 + listH)
+            maxNodeHeight = Math.max(maxNodeHeight, 80 + listH)
           }
         })
       }
       if (groupByName) {
         groupedMap.forEach(g => {
           const listH = Math.min(g.length * 20 + 10, 154)
-          maxNodeHeight = Math.max(maxNodeHeight, 72 + listH)
+          maxNodeHeight = Math.max(maxNodeHeight, 80 + listH)
         })
       }
-      vGap = Math.max(115, maxNodeHeight + 20)
+      vGap = Math.max(130, maxNodeHeight + 20)
     }
 
     const cfg: LayoutConfig = {
