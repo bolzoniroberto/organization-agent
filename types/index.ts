@@ -184,7 +184,7 @@ export interface StrutturaTns {
 }
 
 export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico' | 'data-cleaning' | 'db-live' | 'agenti' | 'accordion' | 'dashboard'
-export type ActiveView = 'posizioni' | 'persone-ts' | 'tns' | 'nodi' | 'persone' | 'ruoli-tns' | 'strutture-tns' | 'variabili' | 'bulk' | 'enrich' | 'dc-duplicati' | 'dc-bulk-edit' | 'dc-merge' | 'ordine-servizio' | 'accordion-uo' | 'accordion-tns' | 'accordion-responsabili'
+export type ActiveView = 'posizioni' | 'persone-ts' | 'tns' | 'nodi' | 'persone' | 'ruoli-tns' | 'strutture-tns' | 'variabili' | 'bulk' | 'enrich' | 'scheda-movimento' | 'dc-duplicati' | 'dc-bulk-edit' | 'dc-merge' | 'ordine-servizio' | 'accordion-uo' | 'accordion-tns' | 'accordion-responsabili'
 
 export type ProposalTipo =
   | 'INSERT_PERSONA'
@@ -224,6 +224,36 @@ export interface CleaningProposal {
   records: Record<string, unknown>[]
   suggestedAction: 'merge' | 'delete' | 'update' | 'review'
 }
+export interface SchedaMovimentoParsed {
+  tipoMovimento: string
+  decorrenza: string | null
+  cf: string | null
+  cognome: string | null
+  nome: string | null
+  sesso: string | null
+  data_nascita: string | null
+  comune_nascita: string | null
+  provincia_nascita: string | null
+  nazione_nascita: string | null
+  societa: string | null
+  area: string | null
+  sotto_area: string | null
+  cdc_amministrativo: string | null
+  sede: string | null
+  tipo_contratto: string | null
+  qualifica: string | null
+  matricola: string | null
+  email: string | null
+  job_title: string | null
+  referente_diretto: string | null
+  telelavoro: string | null
+  data_fine_rapporto: string | null
+  note: string | null
+  provenienza_societa: string | null
+  provenienza_area: string | null
+  provenienza_sotto_area: string | null
+}
+
 export type OrgSubTab = 'posizioni' | 'persone' | 'tns'
 export type TipoNodo = 'STRUTTURA' | 'PERSONA' | 'ANOMALIA'
 

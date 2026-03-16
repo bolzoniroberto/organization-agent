@@ -1,7 +1,8 @@
 'use client'
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import { useHRStore } from '@/store/useHRStore'
-import { Search, RefreshCw } from 'lucide-react'
+import { api } from '@/lib/api'
+import { Search, RefreshCw, DatabaseBackup } from 'lucide-react'
 
 function Panel({
   title, count, color, search, onSearch, children
@@ -68,11 +69,36 @@ export default function DbLiveView() {
   const [s3, setS3] = useState('')
   const [s4, setS4] = useState('')
   const [refreshing, setRefreshing] = useState(false)
+  const [backing, setBacking] = useState(false)
+  const [backups, setBackups] = useState<{ name: string; sizeKb: number; createdAt: string }[]>([])
+  const [showBackups, setShowBackups] = useState(false)
 
   const handleRefresh = async () => {
     setRefreshing(true)
     await refreshAll()
     setRefreshing(false)
+  }
+
+  const loadBackups = useCallback(async () => {
+    const res = await api.db.listBackups()
+    setBackups(res.backups)
+  }, [])
+
+  useEffect(() => {
+    if (showBackups) loadBackups()
+  }, [showBackups, loadBackups])
+
+  const handleBackup = async () => {
+    setBacking(true)
+    try {
+      const res = await api.db.backup()
+      if (res.success) {
+        await loadBackups()
+        setShowBackups(true)
+      }
+    } finally {
+      setBacking(false)
+    }
   }
 
   const fNodi = useMemo(() => {
@@ -102,6 +128,27 @@ export default function DbLiveView() {
         <span className="text-xs text-slate-500">vista di controllo — sola lettura</span>
         <div className="flex-1" />
         <button
+          onClick={() => setShowBackups(v => !v)}
+          className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded border transition-colors ${
+            showBackups ? 'border-indigo-600 text-indigo-300 bg-indigo-950/40' : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:border-slate-500'
+          }`}
+        >
+          <DatabaseBackup className="w-3 h-3" />
+          Backup
+          {backups.length > 0 && <span className="text-slate-500">({backups.length})</span>}
+        </button>
+
+        <button
+          onClick={handleBackup}
+          disabled={backing}
+          className="flex items-center gap-1.5 text-xs text-green-400 hover:text-green-300 px-2 py-1 rounded border border-green-800 hover:border-green-600 transition-colors disabled:opacity-40"
+          title="Crea backup ora"
+        >
+          {backing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <DatabaseBackup className="w-3 h-3" />}
+          {backing ? 'Backup…' : 'Backup ora'}
+        </button>
+
+        <button
           onClick={handleRefresh}
           disabled={refreshing}
           className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded border border-slate-600 hover:border-slate-500 transition-colors disabled:opacity-40"
@@ -110,6 +157,24 @@ export default function DbLiveView() {
           Ricarica
         </button>
       </div>
+
+      {showBackups && (
+        <div className="flex-none px-4 py-2 bg-slate-900 border-b border-slate-700">
+          {backups.length === 0
+            ? <p className="text-xs text-slate-500">Nessun backup disponibile. Clicca "Backup ora" per creare il primo.</p>
+            : (
+              <div className="flex flex-wrap gap-2">
+                {backups.map(b => (
+                  <div key={b.name} className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 font-mono text-slate-400">
+                    {b.name.replace('hrplatform_', '').replace('.db', '')}
+                    <span className="text-slate-600 ml-1">{b.sizeKb}KB</span>
+                  </div>
+                ))}
+              </div>
+            )
+          }
+        </div>
+      )}
 
       <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-2 p-2 min-h-0 overflow-hidden">
         <Panel title="Nodi Organigramma" count={fNodi.length} color="text-slate-300" search={s1} onSearch={setS1}>

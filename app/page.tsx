@@ -11,6 +11,7 @@ import DbLiveView from '@/components/views/DbLiveView'
 import AgentiView from '@/components/views/AgentiView'
 import AccordionSectionView from '@/components/views/AccordionSectionView'
 import DashboardView from '@/components/views/DashboardView'
+import ImportSchedaMovimentoView from '@/components/views/ImportSchedaMovimentoView'
 import { useHRStore } from '@/store/useHRStore'
 import type { ActiveSection } from '@/types'
 
@@ -32,7 +33,10 @@ export default function Home() {
 
   const vis = (s: ActiveSection) => activeSection === s ? 'h-full' : 'h-full hidden'
 
-  const ImportView = activeView === 'enrich' ? ImportEnrichView : ImportBulkView
+  const ImportView =
+    activeView === 'enrich' ? ImportEnrichView :
+    activeView === 'scheda-movimento' ? ImportSchedaMovimentoView :
+    ImportBulkView
 
   return (
     <AppShell>

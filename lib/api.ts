@@ -227,6 +227,14 @@ export const api = {
       fetch(u(`/api/strutture-tns/${encodeURIComponent(codice)}/persone`)).then(r => json(r)),
   },
 
+  db: {
+    backup: (): Promise<{ success: boolean; file?: string; sizeKb?: number; totalBackups?: number; error?: string }> =>
+      fetch(u('/api/db/backup'), { method: 'POST' }).then(r => json(r)),
+
+    listBackups: (): Promise<{ backups: { name: string; sizeKb: number; createdAt: string }[] }> =>
+      fetch(u('/api/db/backup')).then(r => json(r)),
+  },
+
   dataCleaning: {
     proposals: (): Promise<CleaningProposal[]> =>
       fetch(u('/api/data-cleaning/proposals')).then(r => json(r)),
@@ -319,6 +327,21 @@ export const api = {
       const fd = new FormData()
       fd.append('file', file)
       return fetch(u('/api/import/tns'), { method: 'POST', body: fd }).then(r => json(r))
+    },
+
+    schedaMovimento: {
+      parse: async (file: File): Promise<{ parsed: unknown; cfExists: boolean; cfDeleted: boolean }> => {
+        const fd = new FormData()
+        fd.append('file', file)
+        return fetch(u('/api/import/scheda-movimento'), { method: 'POST', body: fd }).then(r => json(r))
+      },
+
+      execute: async (body: unknown): Promise<{ success: boolean; actions: string[]; error?: string }> =>
+        fetch(u('/api/import/scheda-movimento/execute'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }).then(r => json(r)),
     },
   },
 }

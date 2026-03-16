@@ -59,10 +59,10 @@ export default function DashboardWidget({ config, data, onRemove, onResize }: Pr
         <ResponsiveContainer width="100%" height={chartH}>
           <PieChart>
             <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={outerRadius}
-              label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+              label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`} labelLine={false}>
               {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
             </Pie>
-            <Tooltip formatter={(v: number) => v.toLocaleString()} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
+            <Tooltip formatter={(v) => (v ?? 0).toLocaleString()} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
           </PieChart>
         </ResponsiveContainer>
       )
@@ -79,7 +79,7 @@ export default function DashboardWidget({ config, data, onRemove, onResize }: Pr
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
             <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fill: '#94a3b8', fontSize: 11 }} />
             <YAxis type="category" dataKey="_row" hide />
-            <Tooltip formatter={(v: number) => `${v}%`} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
+            <Tooltip formatter={(v) => `${v}%`} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
             <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
             {keys.map((k, i) => <Bar key={k} dataKey={k} stackId="s" fill={PALETTE[i % PALETTE.length]} />)}
           </BarChart>
@@ -94,7 +94,7 @@ export default function DashboardWidget({ config, data, onRemove, onResize }: Pr
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
             <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} />
             <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} width={60} />
-            <Tooltip formatter={(v: number) => v.toLocaleString()} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
+            <Tooltip formatter={(v) => (v ?? 0).toLocaleString()} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
             <Bar dataKey="value" fill={PALETTE[0]} radius={[0, 3, 3, 0]}>
               {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
             </Bar>
@@ -109,7 +109,7 @@ export default function DashboardWidget({ config, data, onRemove, onResize }: Pr
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
           <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={-35} textAnchor="end" interval={0} />
           <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
-          <Tooltip formatter={(v: number) => v.toLocaleString()} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
+          <Tooltip formatter={(v) => (v ?? 0).toLocaleString()} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
           <Bar dataKey="value" fill={PALETTE[0]} radius={[3, 3, 0, 0]}>
             {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
           </Bar>

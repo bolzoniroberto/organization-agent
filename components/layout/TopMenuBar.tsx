@@ -117,6 +117,7 @@ export default function TopMenuBar() {
         <MenuButton label="Import" active={activeSection === 'import'}>
           <MenuItem label="Caricamento Iniziale" section="import" view="bulk" onSelect={nav} activeSection={activeSection} activeView={activeView} />
           <MenuItem label="Arricchimento Puntuale" section="import" view="enrich" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="Scheda Movimenti" section="import" view="scheda-movimento" onSelect={nav} activeSection={activeSection} activeView={activeView} />
         </MenuButton>
 
         <MenuButton label="Data Cleaning" active={activeSection === 'data-cleaning'}>
