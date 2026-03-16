@@ -1,199 +1,165 @@
 'use client'
-import React, { useMemo, useState } from 'react'
-import { ResponsiveContainer, Treemap, Tooltip } from 'recharts'
-import type { NodoOrganigramma, Persona } from '@/types'
+import React, { useMemo, useState, useEffect, useRef } from 'react'
+import * as d3 from 'd3-hierarchy'
+import type { NodoOrganigramma } from '@/types'
 
-// -- Dati Treemap --
-export interface TreemapNode {
-  [key: string]: any; // Allow indexing to satisfy recharts TreemapDataType
+export interface HierarchyNodeData {
+  id: string
   name: string
   value?: number
-  id: string
-  children?: TreemapNode[]
+  children?: HierarchyNodeData[]
   data: NodoOrganigramma | null
 }
 
 interface TreemapViewProps {
-  data: NodoOrganigramma[] // La root gerarchica o l'elenco dei nodi
-  rootId?: string // L'id della radice se siamo in drill (altrimenti root virtuale)
+  data: NodoOrganigramma[]
+  rootId?: string
+  selectedNodeId?: string
   onNodeClick?: (id: string, name: string) => void
+  onNodeContextMenu?: (e: React.MouseEvent, nodeId: string) => void
 }
 
-/** 
- * Customized Content per ogni rettangolo della Treemap
- */
-const CustomTreemapContent = (props: any) => {
-  const { root, depth, x, y, width, height, index, name, value, bgColors } = props
-  
-  if (width < 30 || height < 20) return null // Nascondi se troppo piccolo
+export default function TreemapView({ data, rootId, selectedNodeId, onNodeClick, onNodeContextMenu }: TreemapViewProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
+  const [hoveredNode, setHoveredNode] = useState<d3.HierarchyRectangularNode<HierarchyNodeData> | null>(null)
 
-  // Generiamo un colore in base alla profondità e all'indice
-  const hue = ((depth * 40) + (index * 15)) % 360
-  // Più profondo = più scuro in un tema scuro, 
-  // depth 1: lightness 35%, depth 2: 25%, ecc.
-  const lightness = Math.max(15, 45 - depth * 10)
-  const fill = `hsl(${hue}, 60%, ${lightness}%)`
-
-  const border = `hsl(${hue}, 60%, ${lightness + 20}%)`
-
-  return (
-    <g>
-      <rect
-        x={x}
-        y={y}
-        width={width}
-        height={height}
-        style={{
-          fill,
-          stroke: border,
-          strokeWidth: 2 / (depth + 1), // Bordi più sottili man mano che si scende
-          cursor: 'pointer',
-          transition: 'fill 0.2s',
-        }}
-        onMouseEnter={(e: any) => { e.target.style.fill = `hsl(${hue}, 70%, ${lightness + 10}%)` }}
-        onMouseLeave={(e: any) => { e.target.style.fill = fill }}
-        onClick={() => {
-          if (props.onNodeClick && props.id) {
-            props.onNodeClick(props.id, name)
-          }
-        }}
-      />
-      {/* Testo solo se c'è spazio sufficiente */}
-      {width > 60 && height > 35 && (
-        <>
-          <text
-            x={x + 6}
-            y={y + 16}
-            fill="#e2e8f0" // slate-200
-            fontSize={Math.max(10, Math.min(14, width / 10))}
-            fontWeight="bold"
-            className="pointer-events-none select-none"
-          >
-            {name?.length > 25 ? name.substring(0, 25) + '...' : name}
-          </text>
-          {width > 80 && height > 50 && (
-            <text
-              x={x + 6}
-              y={y + 32}
-              fill="#94a3b8" // slate-400
-              fontSize={10}
-              className="pointer-events-none select-none"
-            >
-              Peso: {value}
-            </text>
-          )}
-        </>
-      )}
-    </g>
-  )
-}
-
-const CustomTooltip = ({ active, payload }: any) => {
-  if (active && payload && payload.length) {
-    const data = payload[0].payload
-    return (
-      <div className="bg-slate-900 border border-slate-700 p-3 rounded-lg shadow-xl text-xs z-50 pointer-events-none">
-        <p className="font-bold text-slate-100 mb-1">{data.name}</p>
-        <p className="text-slate-400">Dimensione: <span className="text-slate-200 font-medium">{data.value}</span></p>
-        {data.id && <p className="text-slate-500 font-mono mt-1 text-[10px]">{data.id}</p>}
-      </div>
-    )
-  }
-  return null
-}
-
-export default function TreemapView({ data, rootId, onNodeClick }: TreemapViewProps) {
-  
-  // Costruisce l'albero per la Treemap
-  const treemapData = useMemo(() => {
-    if (!data || data.length === 0) return []
-
-    const nodesMap = new Map<string, TreemapNode>()
-    
-    // Inizializza i nodi
-    data.forEach(n => {
-      nodesMap.set(n.id, {
-        id: n.id,
-        name: n.nome_uo || n.id,
-        value: 1, // Base value (peso nodo stesso)
-        children: [],
-        data: n
-      })
+  useEffect(() => {
+    if (!containerRef.current) return
+    const observer = new ResizeObserver((entries) => {
+      if (entries[0]) {
+        const { width, height } = entries[0].contentRect
+        setDimensions({ width, height })
+      }
     })
+    observer.observe(containerRef.current)
+    return () => observer.disconnect()
+  }, [])
 
-    const roots: TreemapNode[] = []
-
-    // Popola i children
+  const hierarchyData = useMemo(() => {
+    if (!data || data.length === 0) return null
+    const nodesMap = new Map<string, HierarchyNodeData>()
     data.forEach(n => {
-      const parentId = n.reports_to
+      nodesMap.set(n.id, { id: n.id, name: n.nome_uo || n.id, children: [], data: n })
+    })
+    const roots: HierarchyNodeData[] = []
+    data.forEach(n => {
       const tmNode = nodesMap.get(n.id)!
-      
-      // Se abbiamo un drillRootId specifico, trattiamo le radici che NON hanno il parent_id (o ce l'hanno fuori dati)
-      if (parentId && nodesMap.has(parentId)) {
-        nodesMap.get(parentId)!.children!.push(tmNode)
+      if (n.reports_to && nodesMap.has(n.reports_to)) {
+        nodesMap.get(n.reports_to)!.children!.push(tmNode)
       } else {
         roots.push(tmNode)
       }
     })
-
-    // Funzione per calcolare il "value" dei nodi foglia (o propagare pesi)
-    // Se un nodo ha figli, `recharts` calcola automaticamente il size sommando i children 
-    // se non gli passiamo un `value` fisso forzato al padre, oppure possiamo propagarlo manualmente.
-    // In questo caso, assegniamo un value di default (1) ai nodi senza figli, 
-    // e per i padri rimuoviamo il parametro value, così Recharts somma i figli.
-    const cleanValues = (node: TreemapNode) => {
-      if (node.children && node.children.length > 0) {
-        node.children.forEach(cleanValues)
-        // RIMUOVIAMO il value dal padre affinché Recharts lo calcoli auto-sommando i children
-        delete (node as any).value
-      } else {
-        // Foglia
-        node.value = 1 
-        delete node.children // rimuoviamo array vuoto
-      }
-    }
-
-    roots.forEach(cleanValues)
-
-    // Se c'è rootId cerchiamo di restituire il sottoalbero focalizzato
+    let finalRoot: HierarchyNodeData
     if (rootId && nodesMap.has(rootId)) {
-        const rootNode = nodesMap.get(rootId)!
-        return [rootNode]
+      finalRoot = nodesMap.get(rootId)!
+    } else if (roots.length === 1) {
+      finalRoot = roots[0]
+    } else {
+      finalRoot = { name: 'Azienda', id: 'virtual-root', children: roots, data: null }
     }
-
-    // Altrimenti restituiamo virtual root o array di radici multiple (Recharts accetta un array di 1 o più root)
-    if (roots.length === 1) {
-        return roots
-    }
-    
-    return [{
-        name: 'Azienda',
-        children: roots,
-        id: 'virtual-root',
-        data: null as any
-    }]
+    return d3.hierarchy<HierarchyNodeData>(finalRoot)
+      .sum(d => (d.children && d.children.length > 0) ? 0 : 1)
+      .sort((a, b) => (b.value || 0) - (a.value || 0))
   }, [data, rootId])
 
-  if (!treemapData || treemapData.length === 0) {
-    return <div className="p-8 text-center text-slate-500">Nessun dato per Treemap</div>
+  const partitionLayout = useMemo(() => {
+    if (!hierarchyData || dimensions.width === 0 || dimensions.height === 0) return []
+    const partition = d3.partition<HierarchyNodeData>()
+      .size([dimensions.width, dimensions.height])
+      .padding(1)
+    return partition(hierarchyData).descendants()
+  }, [hierarchyData, dimensions])
+
+  if (!data || data.length === 0) {
+    return <div className="w-full h-full flex items-center justify-center text-slate-500">Nessun dato per Treemap</div>
   }
 
   return (
-    <div className="w-full h-full bg-slate-950 p-4">
-      <ResponsiveContainer width="100%" height="100%">
-        <Treemap
-          data={treemapData}
-          dataKey="value"
-          aspectRatio={4 / 3}
-          stroke="#fff"
-          fill="#8884d8"
-          isAnimationActive={true}
-          animationDuration={600}
-          content={<CustomTreemapContent onNodeClick={onNodeClick} />}
+    <div className="w-full h-full bg-slate-950 p-4 relative" ref={containerRef}>
+      {dimensions.width > 0 && dimensions.height > 0 && partitionLayout.length > 0 && (
+        <svg width={dimensions.width} height={dimensions.height} className="block">
+          {partitionLayout.map((node, index) => {
+            const width = Math.max(0, node.x1 - node.x0)
+            const height = Math.max(0, node.y1 - node.y0)
+            const depth = node.depth
+            const hue = ((depth * 40) + ((node.x0 / dimensions.width) * 60)) % 360
+            const lightness = Math.max(20, 45 - depth * 6)
+            const isHovered = hoveredNode?.data?.id === node.data.id
+            const isSelected = selectedNodeId && node.data.id === selectedNodeId
+            const fill = isSelected
+              ? `hsl(${hue}, 80%, ${lightness + 18}%)`
+              : isHovered
+                ? `hsl(${hue}, 70%, ${lightness + 10}%)`
+                : `hsl(${hue}, 60%, ${lightness}%)`
+            const stroke = isSelected ? '#818cf8' : `hsl(${hue}, 60%, ${lightness + 20}%)`
+            const strokeWidth = isSelected ? 2 : 1
+
+            return (
+              <g
+                key={node.data?.id || 'key-' + index}
+                transform={`translate(${node.x0},${node.y0})`}
+                onMouseEnter={() => setHoveredNode(node)}
+                onMouseLeave={() => setHoveredNode(null)}
+                onClick={() => {
+                  if (onNodeClick && node.data?.id && node.data.id !== 'virtual-root') {
+                    onNodeClick(node.data.id, node.data.name)
+                  }
+                }}
+                onContextMenu={(e) => {
+                  if (onNodeContextMenu && node.data?.id && node.data.id !== 'virtual-root') {
+                    e.preventDefault()
+                    onNodeContextMenu(e, node.data.id)
+                  }
+                }}
+                className={node.data?.id !== 'virtual-root' ? 'cursor-pointer' : ''}
+              >
+                <rect
+                  width={width}
+                  height={height}
+                  fill={fill}
+                  stroke={stroke}
+                  strokeWidth={strokeWidth}
+                  className="transition-colors duration-150"
+                />
+                {width > 32 && height > 28 && node.data?.name && (
+                  <>
+                    <text x={6} y={15}
+                      fill={isSelected ? '#e0e7ff' : '#f8fafc'}
+                      fontSize={Math.max(9, Math.min(12, width / 14))}
+                      fontWeight={isSelected ? '700' : '600'}
+                      className="pointer-events-none select-none drop-shadow-md"
+                    >
+                      {node.data.name.length > (width / 7)
+                        ? node.data.name.substring(0, Math.max(4, Math.floor(width / 7))) + '…'
+                        : node.data.name}
+                    </text>
+                    <text x={6} y={27} fill={isSelected ? '#c7d2fe' : '#94a3b8'} fontSize={9}
+                      className="pointer-events-none select-none">
+                      {node.value} {node.value === 1 ? 'persona' : 'persone'}
+                    </text>
+                  </>
+                )}
+              </g>
+            )
+          })}
+        </svg>
+      )}
+
+      {hoveredNode && hoveredNode.data?.id !== 'virtual-root' && (
+        <div
+          className="absolute pointer-events-none bg-slate-900 border border-slate-700 p-3 rounded-lg shadow-2xl text-xs z-50 transform -translate-x-1/2 -translate-y-full mb-2"
+          style={{ left: (hoveredNode.x0 + hoveredNode.x1) / 2 + 16, top: hoveredNode.y0 + 10 }}
         >
-          <Tooltip content={<CustomTooltip />} />
-        </Treemap>
-      </ResponsiveContainer>
+          <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-transparent border-t-slate-700" />
+          <div className="absolute -bottom-[7px] left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-transparent border-t-slate-900" />
+          <p className="font-bold text-slate-100 mb-1">{hoveredNode.data?.name}</p>
+          <p className="text-slate-400">Persone: <span className="text-slate-200 font-medium">{hoveredNode.value}</span></p>
+          {hoveredNode.data?.id && <p className="text-slate-500 font-mono mt-1 text-[10px] uppercase">{hoveredNode.data.id}</p>}
+          {onNodeContextMenu && <p className="text-slate-600 mt-1">Tasto destro per opzioni</p>}
+        </div>
+      )}
     </div>
   )
 }

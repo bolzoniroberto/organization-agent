@@ -19,6 +19,7 @@ import {
 } from '@/lib/orgchart-layout'
 import { useOrgDrill } from '@/lib/use-org-drill'
 import { EDGE_TYPES } from '@/components/orgchart/OrgEdge'
+import { usePersistedState } from '@/lib/use-persisted-state'
 
 const NODE_TYPES = { orgNode: OrgNode }
 const TARGET_RATIO = 1.8
@@ -112,7 +113,7 @@ export default function PersoneCanvas() {
   const [searchResults, setSearchResults] = useState<SupervisioneTimesheet[]>([])
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null)
   const [colorMode, setColorMode] = useState<ColorMode>('none')
-  const [nodeFields, setNodeFields] = useState<[string, string, string]>(['nome_completo', 'qualifica', 'area'])
+  const [nodeFields, setNodeFields] = usePersistedState<[string, string, string]>('orgchart:persone:nodeFields', ['nome_completo', 'qualifica', 'area'])
   const [focusedNode, setFocusedNode] = useState<string | null>(null)
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
   const prevVisibleIdsRef = useRef<Set<string>>(new Set())
@@ -265,6 +266,14 @@ export default function PersoneCanvas() {
 
   const activePath = drillRootId ? null : (focusPath ?? hoverPath)
 
+  const drillAncestorSet = useMemo((): Set<string> => {
+    if (!drillRootId) return new Set()
+    const s = new Set<string>()
+    let cur = timesheetWithRoots.find(t => t.cf_dipendente === drillRootId)?.cf_supervisore ?? null
+    while (cur) { s.add(cur); cur = timesheetWithRoots.find(t => t.cf_dipendente === cur)?.cf_supervisore ?? null }
+    return s
+  }, [drillRootId, timesheetWithRoots])
+
   // ── Drag-to-reparent ───────────────────────────────────────────────────────
   const isDescendant = useCallback((ancestorId: string, checkId: string): boolean => {
     const children = timesheetWithRoots.filter(t => t.cf_supervisore === ancestorId)
@@ -412,6 +421,7 @@ export default function PersoneCanvas() {
           isOverflowed: false, hiddenCount: 0, colorScheme,
           semanticStatus: semanticStatusMap.get(cf),
           entranceDelay, compact: compactMode,
+          isAncestor: drillAncestorSet.has(cf),
           onExpand: () => toggleCollapse(cf),
           onExpandOverflow: () => {},
           onOpenDrawer: () => openDrawer(cf),
@@ -429,10 +439,44 @@ export default function PersoneCanvas() {
       style: { stroke: '#475569', strokeWidth: 1.5 }
     }))
 
+    // ── Collapse ancestors into single breadcrumb chip ──────────────────────
+    if (drillAncestorSet.size >= 2) {
+      const drillRootTN = visibleTree.find(n => n.id === drillRootId)
+      if (drillRootTN) {
+        const chain: string[] = []
+        let c: string | null = drillRootTN.item.cf_supervisore ?? null
+        while (c) { chain.unshift(c); c = timesheetWithRoots.find(t => t.cf_dipendente === c)?.cf_supervisore ?? null }
+        const breadcrumbLabel = chain.map(cf => getPersonaField(cf, 'nome_completo') ?? cf).join(' › ')
+        const lastCf = chain[chain.length - 1]
+        const crumbNode: Node = {
+          id: '__ancestors__',
+          type: 'orgNode',
+          position: { x: drillRootTN.x, y: drillRootTN.y - 80 },
+          data: {
+            id: '__ancestors__',
+            label: breadcrumbLabel,
+            tipo: 'TIMESHEET' as const,
+            collapsed: false, hasChildren: false, childrenCount: 0,
+            depth: 0, isOverflowed: false, hiddenCount: 0,
+            isAncestor: true,
+            onExpand: () => {}, onExpandOverflow: () => {},
+            onOpenDrawer: lastCf ? () => openDrawer(lastCf) : () => {},
+          } as unknown as Record<string, unknown>,
+        }
+        const filteredNodes = treeNodes.filter(n => !drillAncestorSet.has(n.id))
+        const ancEdge: Edge = { id: `__anc__-${drillRootId!}`, source: '__ancestors__', target: drillRootId!, type: 'orgEdge', style: { stroke: '#475569', strokeWidth: 1.5 } }
+        const filteredEdges = treeEdges
+          .filter(e => !drillAncestorSet.has(e.source) && !drillAncestorSet.has(e.target))
+          .concat([ancEdge])
+        return { nodes: [...filteredNodes, crumbNode] as Node[], edges: filteredEdges }
+      }
+    }
+
     return { nodes: treeNodes as Node[], edges: treeEdges }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleTree, collapsedSet, childCountMap, highlightedNode,
-      toggleCollapse, colorMode, colorMap, semanticStatusMap, activePath, compactMode, openDrawer, personaMap, nodeFields, getPersonaField, handleDropPersonOnNode])
+      toggleCollapse, colorMode, colorMap, semanticStatusMap, activePath, compactMode, openDrawer, personaMap, nodeFields, getPersonaField, handleDropPersonOnNode,
+      drillAncestorSet, drillRootId, timesheetWithRoots])
 
   useEffect(() => {
     prevVisibleIdsRef.current = new Set(nodes.filter(n => n.type === 'orgNode').map(n => n.id))
@@ -634,7 +678,7 @@ export default function PersoneCanvas() {
             <select
               key={i}
               value={nodeFields[i]}
-              onChange={e => setNodeFields(prev => { const n = [...prev] as [string,string,string]; n[i] = e.target.value; return n })}
+              onChange={e => { const n = [...nodeFields] as [string,string,string]; n[i] = e.target.value; setNodeFields(n) }}
               className="text-xs bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             >
               {NODE_FIELD_OPTIONS.filter(o => o.value === '' || o.value === nodeFields[i] || !nodeFields.includes(o.value)).map(o => (

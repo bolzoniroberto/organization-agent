@@ -20,6 +20,8 @@ export interface OrgNodeData {
   alertDots?: { color: string; title: string }[]
   entranceDelay?: number
   compact?: boolean
+  /** Ancestor chip: renders as a slim breadcrumb chip in the drill ancestry chain */
+  isAncestor?: boolean
   onExpand: () => void
   onExpandOverflow: () => void
   onOpenDrawer: () => void
@@ -55,6 +57,7 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
   const {
     label, sublabel, extraDetail, tipo, collapsed, hasChildren, childrenCount, depth,
     isOverflowed, hiddenCount, colorScheme, semanticStatus, alertDots, entranceDelay, compact,
+    isAncestor,
     onExpand, onExpandOverflow, onOpenDrawer, onDropPerson, leafList, groupedPersons
   } = data
 
@@ -121,6 +124,25 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
       </button>
     )
   ) : null
+
+  // ── Ancestor chip (drill chain, compressed) ───────────────────────────────
+  if (isAncestor) {
+    return (
+      <div
+        className="relative rounded select-none bg-slate-900/80 border border-slate-700 hover:border-slate-500 hover:bg-slate-800 transition-all duration-100 cursor-pointer"
+        style={{ width: NODE_W, height: 32, ...entranceStyle }}
+        onDoubleClick={(e) => { e.stopPropagation(); onOpenDrawer() }}
+        title={label}
+      >
+        <Handle type="target" position={Position.Top} className="!bg-slate-600 !w-1.5 !h-1.5" />
+        <div className="px-2 h-full flex items-center gap-1.5 overflow-hidden">
+          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${tipoColor.dot} opacity-60`} />
+          <span className="text-xs text-slate-400 truncate flex-1">{label}</span>
+        </div>
+        <Handle type="source" position={Position.Bottom} className="!bg-slate-600 !w-1.5 !h-1.5" />
+      </div>
+    )
+  }
 
   // ── Compact ──────────────────────────────────────────────────────────────────
   if (compact) {

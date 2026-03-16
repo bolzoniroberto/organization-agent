@@ -10,6 +10,7 @@ import DataCleaningView from '@/components/views/DataCleaningView'
 import DbLiveView from '@/components/views/DbLiveView'
 import AgentiView from '@/components/views/AgentiView'
 import AccordionSectionView from '@/components/views/AccordionSectionView'
+import DashboardView from '@/components/views/DashboardView'
 import { useHRStore } from '@/store/useHRStore'
 import type { ActiveSection } from '@/types'
 
@@ -43,6 +44,7 @@ export default function Home() {
       {mounted.has('db-live') && <div className={vis('db-live')}><DbLiveView /></div>}
       {mounted.has('agenti') && <div className={vis('agenti')}><AgentiView /></div>}
       {mounted.has('accordion') && <div className={vis('accordion')}><AccordionSectionView /></div>}
+      {mounted.has('dashboard') && <div className={vis('dashboard')}><DashboardView /></div>}
     </AppShell>
   )
 }

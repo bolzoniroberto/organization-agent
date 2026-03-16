@@ -126,6 +126,18 @@ export default function TopMenuBar() {
         </MenuButton>
 
         <button
+          onClick={() => { setActiveSection('dashboard'); setActiveView('nodi') }}
+          className={[
+            'px-3 py-1.5 text-sm rounded-md transition-colors',
+            activeSection === 'dashboard'
+              ? 'bg-slate-700 text-slate-100'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          ].join(' ')}
+        >
+          Dashboard
+        </button>
+
+        <button
           onClick={() => { setActiveSection('storico'); setActiveView('nodi') }}
           className={[
             'px-3 py-1.5 text-sm rounded-md transition-colors',

@@ -22,6 +22,8 @@ import { useOrgDrill } from '@/lib/use-org-drill'
 import { EDGE_TYPES } from '@/components/orgchart/OrgEdge'
 import TreemapView from '@/components/views/orgchart/TreemapView'
 import InfoDialog from '@/components/shared/InfoDialog'
+import RecordDrawer from '@/components/shared/RecordDrawer'
+import { usePersistedState } from '@/lib/use-persisted-state'
 
 const NODE_TYPES = { orgNode: OrgNode, orgGroup: OrgGroupNode }
 const TARGET_RATIO = 1.8   // larghezza/altezza target — forza stacking verticale aggressivo
@@ -260,7 +262,7 @@ export default function PosizioniCanvas() {
   const [searchResults, setSearchResults] = useState<NodoOrganigramma[]>([])
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null)
   const [colorMode, setColorMode] = useState<ColorMode>('none')
-  const [nodeFields, setNodeFields] = useState<[string, string, string]>(['nome_uo', 'cf_persona', ''])
+  const [nodeFields, setNodeFields] = usePersistedState<[string, string, string]>('orgchart:posizioni:nodeFields', ['nome_uo', 'cf_persona', ''])
   const [viewMode, setViewMode] = useState<'tree' | 'sede'>('tree')
   const [visualMode, setVisualMode] = useState<'flow' | 'treemap'>('flow')
   const [sedeFiltro, setSedeFiltro] = useState<string>('all')
@@ -513,6 +515,16 @@ export default function PosizioniCanvas() {
   // When drill is active all visible nodes are already contextual — no dimming
   const activePath = drillRootId ? null : (focusPath ?? hoverPath)
 
+  // ── Ancestor collapse ────────────────────────────────────────────────────────
+  // All ancestor IDs of drillRootId (root → parent), used to collapse into breadcrumb chip
+  const drillAncestorSet = useMemo((): Set<string> => {
+    if (!drillRootId) return new Set()
+    const s = new Set<string>()
+    let cur = filtered.find(n => n.id === drillRootId)?.reports_to ?? null
+    while (cur) { s.add(cur); cur = filtered.find(n => n.id === cur)?.reports_to ?? null }
+    return s
+  }, [drillRootId, filtered])
+
   // ── Drag-to-reparent ───────────────────────────────────────────────────────
   const nodesRef = useRef<Node[]>([])
 
@@ -746,6 +758,7 @@ export default function PosizioniCanvas() {
             semanticStatus: semanticStatusMap.get(tn.id),
             alertDots: isPinned(tn.id) ? [{ color: 'yellow', title: 'Vista fissata' }] : undefined,
             entranceDelay, compact: compactMode,
+            isAncestor: drillAncestorSet.has(tn.id),
             onExpand: () => toggleCollapse(tn.id),
             onExpandOverflow: () => {},
             onOpenDrawer: () => openDrawer(tn.item),
@@ -768,11 +781,49 @@ export default function PosizioniCanvas() {
         style: { stroke: '#475569', strokeWidth: 1.5 }
       }))
 
+    // ── Collapse ancestors into single breadcrumb chip ──────────────────────
+    if (drillAncestorSet.size >= 2) {
+      const drillRootTN = visibleTree.find(n => n.id === drillRootId)
+      if (drillRootTN) {
+        // Build ancestor chain in root→parent order
+        const chain: string[] = []
+        let c: string | null = drillRootTN.item.reports_to ?? null
+        while (c) { chain.unshift(c); c = filtered.find(n => n.id === c)?.reports_to ?? null }
+        const breadcrumbLabel = chain.map(id => {
+          const item = filtered.find(n => n.id === id)
+          return item ? (resolveFieldWithPersona(item, nodeFields[0], personaMap) ?? id) : id
+        }).join(' › ')
+        const lastAncestor = filtered.find(n => n.id === chain[chain.length - 1])
+        const crumbNode: Node = {
+          id: '__ancestors__',
+          type: 'orgNode',
+          position: { x: drillRootTN.x, y: drillRootTN.y - 80 },
+          data: {
+            id: '__ancestors__',
+            label: breadcrumbLabel,
+            tipo: 'STRUTTURA' as const,
+            collapsed: false, hasChildren: false, childrenCount: 0,
+            depth: 0, isOverflowed: false, hiddenCount: 0,
+            isAncestor: true,
+            onExpand: () => {}, onExpandOverflow: () => {},
+            onOpenDrawer: lastAncestor ? () => openDrawer(lastAncestor) : () => {},
+          } as unknown as Record<string, unknown>,
+        }
+        const filteredNodes = treeNodes.filter(n => !drillAncestorSet.has(n.id))
+        const ancEdge: Edge = { id: `__anc__-${drillRootId!}`, source: '__ancestors__', target: drillRootId!, type: 'orgEdge', style: { stroke: '#475569', strokeWidth: 1.5 } }
+        const filteredEdges = treeEdges
+          .filter(e => !drillAncestorSet.has(e.source) && !drillAncestorSet.has(e.target))
+          .concat([ancEdge])
+        return { nodes: [...filteredNodes, crumbNode] as Node[], edges: filteredEdges }
+      }
+    }
+
     return { nodes: treeNodes as Node[], edges: treeEdges }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, visibleTree, collapsedSet, childCountMap, highlightedNode,
       toggleCollapse, colorMode, colorMap, semanticStatusMap, activePath, compactMode,
-      openDrawer, nodeFields, personaMap, isPinned, leafListMode, groupedPersonsMap, handleDropPersonOnNode])
+      openDrawer, nodeFields, personaMap, isPinned, leafListMode, groupedPersonsMap, handleDropPersonOnNode,
+      drillAncestorSet, drillRootId, filtered])
 
   // Trigger readability alert if tree grows too big
   useEffect(() => {
@@ -1050,14 +1101,11 @@ export default function PosizioniCanvas() {
                           disabled={!isSelected && !canSelect}
                           onClick={() => {
                             if (isSelected) {
-                              setNodeFields(prev => { const n = [...prev] as [string,string,string]; n[slotIdx] = ''; return n })
+                              const n = [...nodeFields] as [string,string,string]; n[slotIdx] = ''; setNodeFields(n)
                             } else if (canSelect) {
-                              setNodeFields(prev => {
-                                const n = [...prev] as [string,string,string]
-                                const emptySlot = n.indexOf('')
-                                if (emptySlot !== -1) n[emptySlot] = field.value
-                                return n
-                              })
+                              const n = [...nodeFields] as [string,string,string]
+                              const emptySlot = n.indexOf('')
+                              if (emptySlot !== -1) { n[emptySlot] = field.value; setNodeFields(n) }
                             }
                           }}
                           className={[
@@ -1221,10 +1269,15 @@ export default function PosizioniCanvas() {
 
         <div className="flex-1 min-w-0 relative">
           {visualMode === 'treemap' ? (
-            <TreemapView 
-              data={drilledNodi} 
-              rootId={drillRootId || undefined} 
-              onNodeClick={(id) => drillInto(id, 'navigate', () => setVisualMode('flow'))}
+            <TreemapView
+              data={drilledNodi}
+              rootId={drillRootId || undefined}
+              selectedNodeId={focusedNode ?? undefined}
+              onNodeClick={(id) => setFocusedNode(id)}
+              onNodeContextMenu={(e, nodeId) => {
+                setFocusedNode(nodeId)
+                setContextMenu({ nodeId, x: e.clientX, y: e.clientY })
+              }}
             />
           ) : (
             <ReactFlow

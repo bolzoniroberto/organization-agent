@@ -19,6 +19,7 @@ import {
 } from '@/lib/orgchart-layout'
 import { useOrgDrill } from '@/lib/use-org-drill'
 import { EDGE_TYPES } from '@/components/orgchart/OrgEdge'
+import { usePersistedState } from '@/lib/use-persisted-state'
 
 const NODE_TYPES = { orgNode: OrgNode, orgGroup: OrgGroupNode }
 const TARGET_RATIO = 1.8
@@ -56,7 +57,7 @@ export default function TnsCanvas() {
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<StrutturaTns[]>([])
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null)
-  const [nodeFields, setNodeFields] = useState<[string, string, string]>(['nome', 'codice', 'livello'])
+  const [nodeFields, setNodeFields] = usePersistedState<[string, string, string]>('orgchart:tns:nodeFields', ['nome', 'codice', 'livello'])
   const [focusedNode, setFocusedNode] = useState<string | null>(null)
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
   const [groupByName, setGroupByName] = useState(false)
@@ -271,6 +272,14 @@ export default function TnsCanvas() {
 
   const activePath = drillRootId ? null : (focusPath ?? hoverPath)
 
+  const drillAncestorSet = useMemo((): Set<string> => {
+    if (!drillRootId) return new Set()
+    const s = new Set<string>()
+    let cur = filtered.find(n => n.codice === drillRootId)?.padre ?? null
+    while (cur) { s.add(cur); cur = filtered.find(n => n.codice === cur)?.padre ?? null }
+    return s
+  }, [drillRootId, filtered])
+
   const strutturaTnsMap = useMemo(() => {
     const m = new Map<string, StrutturaTns>()
     filtered.forEach(s => m.set(s.codice, s))
@@ -450,6 +459,7 @@ export default function TnsCanvas() {
             isOverflowed: false, hiddenCount: 0, colorScheme: undefined,
             semanticStatus: semanticStatusMap.get(codice),
             entranceDelay, compact: compactMode,
+            isAncestor: drillAncestorSet.has(codice),
             onExpand: () => toggleCollapse(codice),
             onExpandOverflow: () => {},
             onOpenDrawer: gpList ? () => {} : () => openDrawer(codice),
@@ -471,11 +481,48 @@ export default function TnsCanvas() {
         style: { stroke: '#475569', strokeWidth: 1.5 }
       }))
 
+    // ── Collapse ancestors into single breadcrumb chip ──────────────────────
+    if (drillAncestorSet.size >= 2) {
+      const drillRootTN = visibleTree.find(n => n.id === drillRootId)
+      if (drillRootTN) {
+        const chain: string[] = []
+        let c: string | null = drillRootTN.item.padre ?? null
+        while (c) { chain.unshift(c); c = filtered.find(n => n.codice === c)?.padre ?? null }
+        const breadcrumbLabel = chain.map(id => {
+          const s = filtered.find(n => n.codice === id)
+          return s ? (resolveField(s, nodeFields[0]) ?? id) : id
+        }).join(' › ')
+        const lastAncestor = chain[chain.length - 1]
+        const crumbNode: Node = {
+          id: '__ancestors__',
+          type: 'orgNode',
+          position: { x: drillRootTN.x, y: drillRootTN.y - 80 },
+          data: {
+            id: '__ancestors__',
+            label: breadcrumbLabel,
+            tipo: 'TNS' as const,
+            collapsed: false, hasChildren: false, childrenCount: 0,
+            depth: 0, isOverflowed: false, hiddenCount: 0,
+            isAncestor: true,
+            onExpand: () => {}, onExpandOverflow: () => {},
+            onOpenDrawer: lastAncestor ? () => openDrawer(lastAncestor) : () => {},
+          } as unknown as Record<string, unknown>,
+        }
+        const filteredNodes = treeNodes.filter(n => !drillAncestorSet.has(n.id))
+        const ancEdge: Edge = { id: `__anc__-${drillRootId!}`, source: '__ancestors__', target: drillRootId!, type: 'orgEdge', style: { stroke: '#475569', strokeWidth: 1.5 } }
+        const filteredEdges = treeEdges
+          .filter(e => !drillAncestorSet.has(e.source) && !drillAncestorSet.has(e.target))
+          .concat([ancEdge])
+        return { nodes: [...filteredNodes, crumbNode] as Node[], edges: filteredEdges }
+      }
+    }
+
     return { nodes: treeNodes as Node[], edges: treeEdges }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleTree, collapsedSet, childCountMap, highlightedNode,
       toggleCollapse, semanticStatusMap, activePath, compactMode, openDrawer,
-      strutturaTnsMap, nodeFields, leafListMode, groupedMap, groupByName])
+      strutturaTnsMap, nodeFields, leafListMode, groupedMap, groupByName,
+      drillAncestorSet, drillRootId, filtered])
 
   useEffect(() => {
     prevVisibleIdsRef.current = new Set(nodes.filter(n => n.type === 'orgNode').map(n => n.id))
@@ -715,14 +762,11 @@ export default function TnsCanvas() {
                           disabled={!isSelected && !canSelect}
                           onClick={() => {
                             if (isSelected) {
-                              setNodeFields(prev => { const n = [...prev] as [string,string,string]; n[slotIdx] = ''; return n })
+                              const n = [...nodeFields] as [string,string,string]; n[slotIdx] = ''; setNodeFields(n)
                             } else if (canSelect) {
-                              setNodeFields(prev => {
-                                const n = [...prev] as [string,string,string]
-                                const emptySlot = n.indexOf('')
-                                if (emptySlot !== -1) n[emptySlot] = field.value
-                                return n
-                              })
+                              const n = [...nodeFields] as [string,string,string]
+                              const emptySlot = n.indexOf('')
+                              if (emptySlot !== -1) { n[emptySlot] = field.value; setNodeFields(n) }
                             }
                           }}
                           className={[

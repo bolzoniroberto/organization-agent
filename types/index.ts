@@ -183,7 +183,7 @@ export interface StrutturaTns {
   person_count?: number
 }
 
-export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico' | 'data-cleaning' | 'db-live' | 'agenti' | 'accordion'
+export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico' | 'data-cleaning' | 'db-live' | 'agenti' | 'accordion' | 'dashboard'
 export type ActiveView = 'posizioni' | 'persone-ts' | 'tns' | 'nodi' | 'persone' | 'ruoli-tns' | 'strutture-tns' | 'variabili' | 'bulk' | 'enrich' | 'dc-duplicati' | 'dc-bulk-edit' | 'dc-merge' | 'ordine-servizio' | 'accordion-uo' | 'accordion-tns' | 'accordion-responsabili'
 
 export type ProposalTipo =
