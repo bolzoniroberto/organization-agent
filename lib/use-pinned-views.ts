@@ -22,8 +22,12 @@ export function usePinnedViews() {
     setPins(prev => prev.filter(p => p.id !== id))
   }, [])
 
+  const updatePin = useCallback((id: string, patch: Partial<PinnedView>) => {
+    setPins(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
+  }, [])
+
   const pinnedIds = useMemo(() => new Set(pins.map(p => p.id)), [pins])
   const isPinned = useCallback((id: string) => pinnedIds.has(id), [pinnedIds])
 
-  return { pins, addPin, removePin, isPinned }
+  return { pins, addPin, removePin, updatePin, isPinned }
 }

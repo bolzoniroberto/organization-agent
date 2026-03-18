@@ -1,12 +1,13 @@
 'use client'
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
+import { createRoot } from 'react-dom/client'
 import {
   ReactFlow, Background, Controls, MiniMap,
   type Node, type Edge,
   BackgroundVariant, useReactFlow, useViewport,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Search, X, Pin, PinOff } from 'lucide-react'
+import { Search, X, Pin, PinOff, Printer } from 'lucide-react'
 import { usePinnedViews } from '@/lib/use-pinned-views'
 import { useHRStore } from '@/store/useHRStore'
 import { api } from '@/lib/api'
@@ -21,6 +22,7 @@ import {
 import { useOrgDrill } from '@/lib/use-org-drill'
 import { EDGE_TYPES } from '@/components/orgchart/OrgEdge'
 import TreemapView from '@/components/views/orgchart/TreemapView'
+import PrintOrgChart from '@/components/views/orgchart/PrintOrgChart'
 import InfoDialog from '@/components/shared/InfoDialog'
 import RecordDrawer from '@/components/shared/RecordDrawer'
 import { usePersistedState } from '@/lib/use-persisted-state'
@@ -312,8 +314,20 @@ export default function PosizioniCanvas() {
     nodeId: string; nodeLabel: string; newParentId: string; newParentLabel: string
   } | null>(null)
   const [reparenting, setReparenting] = useState(false)
+  const [pendingRemove, setPendingRemove] = useState<{ nodeId: string; label: string } | null>(null)
+  const [pendingHardDelete, setPendingHardDelete] = useState<{ nodeId: string; label: string } | null>(null)
+  const [nodeActionLoading, setNodeActionLoading] = useState(false)
   const [showUnassigned, setShowUnassigned] = useState(false)
   const [unassignedSearch, setUnassignedSearch] = useState('')
+  const [showAssigned, setShowAssigned] = useState(false)
+  const [assignedSearch, setAssignedSearch] = useState('')
+  const [pendingMultiAssign, setPendingMultiAssign] = useState<{
+    cf: string; personName: string
+    targetNodeId: string; targetNodeLabel: string
+    sourceNodeIds: string[]
+    targetExistingCf?: string; targetExistingName?: string
+  } | null>(null)
+  const [multiAssignLoading, setMultiAssignLoading] = useState(false)
   const [groupByName, setGroupByName] = useState(false)
   const [leafListMode, setLeafListMode] = useState(false)
   const [showFieldsPanel, setShowFieldsPanel] = useState(false)
@@ -321,7 +335,11 @@ export default function PosizioniCanvas() {
   const pinClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (pinClickTimer.current) clearTimeout(pinClickTimer.current) }, [])
   const { showToast } = useHRStore()
-  const { pins, addPin, removePin, isPinned } = usePinnedViews()
+  const { pins, addPin, removePin, updatePin, isPinned } = usePinnedViews()
+
+  const [printMode, setPrintMode] = useState(false)
+  const [pdfExporting, setPdfExporting] = useState(false)
+  const [activePrintPin, setActivePrintPin] = useState<string | null>(null)
 
   const personeNonAssegnate = useMemo(() => {
     const cfInNodi = new Set(filtered.map(n => n.cf_persona).filter(Boolean) as string[])
@@ -339,6 +357,23 @@ export default function PosizioniCanvas() {
       p.nome?.toLowerCase().includes(lower)
     )
   }, [personeNonAssegnate, unassignedSearch])
+
+  const personeAssegnate = useMemo(() => {
+    const cfInNodi = new Set(filtered.map(n => n.cf_persona).filter(Boolean) as string[])
+    return persone
+      .filter(p => !p.deleted_at && cfInNodi.has(p.cf))
+      .sort((a, b) => (a.cognome ?? '').localeCompare(b.cognome ?? ''))
+  }, [persone, filtered])
+
+  const personeAssegnateFiltrate = useMemo(() => {
+    if (!assignedSearch) return personeAssegnate
+    const lower = assignedSearch.toLowerCase()
+    return personeAssegnate.filter(p =>
+      p.cf.toLowerCase().includes(lower) ||
+      p.cognome?.toLowerCase().includes(lower) ||
+      p.nome?.toLowerCase().includes(lower)
+    )
+  }, [personeAssegnate, assignedSearch])
 
   useEffect(() => {
     if (!initializedRef.current && filtered.length > 0) {
@@ -579,6 +614,36 @@ export default function PosizioniCanvas() {
     }
   }, [pendingReparent, showToast, refreshAll])
 
+  const handleConfirmRemove = useCallback(async () => {
+    if (!pendingRemove) return
+    setNodeActionLoading(true)
+    try {
+      await api.org.delete(pendingRemove.nodeId)
+      showToast(`Nodo "${pendingRemove.label}" rimosso`, 'success')
+      await refreshAll()
+    } catch (e) {
+      showToast(String(e), 'error')
+    } finally {
+      setNodeActionLoading(false)
+      setPendingRemove(null)
+    }
+  }, [pendingRemove, showToast, refreshAll])
+
+  const handleConfirmHardDelete = useCallback(async () => {
+    if (!pendingHardDelete) return
+    setNodeActionLoading(true)
+    try {
+      await api.org.hardDelete(pendingHardDelete.nodeId)
+      showToast(`Nodo "${pendingHardDelete.label}" eliminato`, 'success')
+      await refreshAll()
+    } catch (e) {
+      showToast(String(e), 'error')
+    } finally {
+      setNodeActionLoading(false)
+      setPendingHardDelete(null)
+    }
+  }, [pendingHardDelete, showToast, refreshAll])
+
   const openDrawer = useCallback((n: NodoOrganigramma, mode: 'view' | 'edit' = 'view') => {
     setDrawerRecord(n); setDrawerInitialMode(mode); setDrawerOpen(true); setFocusedNode(n.id)
   }, [])
@@ -606,6 +671,26 @@ export default function PosizioniCanvas() {
     const persona = persone.find(p => p.cf === cf)
     if (!persona) return
     const personName = `${persona.cognome ?? ''} ${persona.nome ?? ''}`.trim() || cf
+
+    // Controlla se la persona è già assegnata ad altri nodi attivi
+    const sourceNodes = filtered.filter(n => n.cf_persona === cf && n.id !== nodeId)
+    if (sourceNodes.length > 0) {
+      const targetExistingP = nodo.cf_persona && nodo.cf_persona !== cf
+        ? persone.find(p => p.cf === nodo.cf_persona)
+        : undefined
+      const targetExistingName = targetExistingP
+        ? `${targetExistingP.cognome ?? ''} ${targetExistingP.nome ?? ''}`.trim()
+        : nodo.cf_persona ?? undefined
+      setPendingMultiAssign({
+        cf, personName,
+        targetNodeId: nodeId, targetNodeLabel: nodo.nome_uo ?? nodeId,
+        sourceNodeIds: sourceNodes.map(n => n.id),
+        targetExistingCf: nodo.cf_persona && nodo.cf_persona !== cf ? nodo.cf_persona : undefined,
+        targetExistingName,
+      })
+      return
+    }
+
     if (nodo.cf_persona && nodo.cf_persona !== cf) {
       const existingP = persone.find(p => p.cf === nodo.cf_persona)
       const existingName = existingP ? `${existingP.cognome ?? ''} ${existingP.nome ?? ''}`.trim() : nodo.cf_persona
@@ -627,6 +712,33 @@ export default function PosizioniCanvas() {
       setPendingAssign(null)
     }
   }, [pendingAssign, showToast, refreshAll])
+
+  const handleConfirmMultiAssign = useCallback(async (mode: 'add' | 'move') => {
+    if (!pendingMultiAssign) return
+    setMultiAssignLoading(true)
+    try {
+      if (mode === 'move') {
+        // Rimuovi la persona da tutti i nodi sorgente
+        await Promise.all(pendingMultiAssign.sourceNodeIds.map(id =>
+          api.org.update(id, { cf_persona: null })
+        ))
+      }
+      // Assegna al nodo target
+      await api.org.update(pendingMultiAssign.targetNodeId, { cf_persona: pendingMultiAssign.cf })
+      showToast(
+        mode === 'move'
+          ? `${pendingMultiAssign.personName} spostato in ${pendingMultiAssign.targetNodeLabel}`
+          : `${pendingMultiAssign.personName} associato anche a ${pendingMultiAssign.targetNodeLabel}`,
+        'success'
+      )
+      await refreshAll()
+    } catch (e) {
+      showToast(String(e), 'error')
+    } finally {
+      setMultiAssignLoading(false)
+      setPendingMultiAssign(null)
+    }
+  }, [pendingMultiAssign, showToast, refreshAll])
 
   const pendingOpenNodeIdRef = useRef<string | null>(null)
 
@@ -890,6 +1002,53 @@ export default function PosizioniCanvas() {
     })
   }, [drillInto, fitView])
 
+  const handleExportPdf = useCallback(async () => {
+    if (pins.length === 0) return
+    setPdfExporting(true)
+    try {
+      const jsPDF = (await import('jspdf')).default
+      const html2canvas = (await import('html2canvas')).default
+
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      const pdfW = pdf.internal.pageSize.getWidth()
+      const pdfH = pdf.internal.pageSize.getHeight()
+
+      for (let i = 0; i < pins.length; i++) {
+        const pin = pins[i]
+        const container = document.createElement('div')
+        container.style.cssText = 'position:fixed;left:-9999px;top:0;background:white'
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        root.render(
+          <PrintOrgChart
+            allNodes={filtered}
+            personeMap={personaMap}
+            rootId={pin.id}
+            maxDepth={pin.maxDepth ?? 3}
+            nodePositions={pin.nodePositions ?? {}}
+            interactive={false}
+          />
+        )
+        await new Promise(r => setTimeout(r, 300))
+        const canvas = await html2canvas(container, { scale: 2, backgroundColor: '#ffffff' })
+        const imgData = canvas.toDataURL('image/jpeg', 0.92)
+        if (i > 0) pdf.addPage()
+        const ratio = Math.min(pdfW / (canvas.width / 2), pdfH / (canvas.height / 2))
+        const w = (canvas.width / 2) * ratio
+        const h = (canvas.height / 2) * ratio
+        pdf.addImage(imgData, 'JPEG', (pdfW - w) / 2, (pdfH - h) / 2, w, h)
+        root.unmount()
+        document.body.removeChild(container)
+      }
+
+      pdf.save(`organigramma-${new Date().toISOString().slice(0, 10)}.pdf`)
+    } catch (e) {
+      showToast(String(e), 'error')
+    } finally {
+      setPdfExporting(false)
+    }
+  }, [pins, filtered, personaMap, showToast])
+
   const handleNodeClick = useCallback((e: React.MouseEvent, node: Node) => {
     if (node.type !== 'orgNode') return
     setFocusedNode(node.id)
@@ -1056,6 +1215,21 @@ export default function PosizioniCanvas() {
           </button>
         )}
 
+        {/* Vista stampa */}
+        <button
+          onClick={() => { setPrintMode(p => !p); setActivePrintPin(null) }}
+          className={[
+            'flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md border transition-colors',
+            printMode
+              ? 'bg-emerald-900/50 border-emerald-600 text-emerald-300 font-medium'
+              : 'border-slate-600 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+          ].join(' ')}
+          title="Vista stampa / esportazione PDF"
+        >
+          <Printer className="w-3.5 h-3.5" />
+          {printMode ? 'Esci da stampa' : 'Vista stampa'}
+        </button>
+
         <div className="flex-1" />
 
         {/* Focus indicator */}
@@ -1153,6 +1327,25 @@ export default function PosizioniCanvas() {
           Non in posizione
         </button>
 
+        {/* Persone già assegnate (riassegnazione) toggle */}
+        <button
+          onClick={() => setShowAssigned(v => !v)}
+          className={[
+            'flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md border transition-colors',
+            showAssigned
+              ? 'bg-indigo-900/20 border-indigo-600 text-indigo-300'
+              : 'border-slate-600 text-slate-400 hover:text-slate-200',
+          ].join(' ')}
+        >
+          <span className={[
+            'inline-flex items-center justify-center w-4 h-4 rounded-full text-xs font-bold',
+            personeAssegnate.length > 0 ? 'bg-indigo-500 text-white' : 'bg-slate-600 text-slate-400'
+          ].join(' ')}>
+            {personeAssegnate.length}
+          </span>
+          In posizione
+        </button>
+
       </div>
 
       {/* Color legend */}
@@ -1167,9 +1360,9 @@ export default function PosizioniCanvas() {
         </div>
       )}
 
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative">
         {/* Pannello sinistro: viste fissate + persone non in posizione */}
-        {(pins.length > 0 || showUnassigned) && (
+        {(pins.length > 0 || showUnassigned || showAssigned) && (
           <div 
             className="flex-shrink-0 border-r border-slate-700 bg-slate-900/60 flex flex-col overflow-hidden relative"
             style={{ width: leftPanelWidth }}
@@ -1264,6 +1457,57 @@ export default function PosizioniCanvas() {
                 </div>
               </>
             )}
+
+            {/* Sezione: In posizione (riassegnazione) */}
+            {showAssigned && (
+              <>
+                <div className="px-3 py-2 border-b border-slate-700 flex items-center justify-between flex-shrink-0">
+                  <span className="text-xs font-medium text-indigo-400">
+                    In posizione ({personeAssegnate.length})
+                  </span>
+                </div>
+                <div className="px-2 py-1 border-b border-slate-800 flex-shrink-0">
+                  <p className="text-xs text-slate-500 leading-tight">
+                    Trascina su un nodo per spostare o associare a più posizioni.
+                  </p>
+                </div>
+                <div className="px-2 py-1.5 border-b border-slate-800 flex-shrink-0">
+                  <input
+                    type="text"
+                    placeholder="Cerca..."
+                    value={assignedSearch}
+                    onChange={e => setAssignedSearch(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
+                  {personeAssegnateFiltrate.length === 0 ? (
+                    <p className="text-xs text-slate-600 italic text-center py-4">Nessuna</p>
+                  ) : personeAssegnateFiltrate.map(p => {
+                    const nodiDellaPersona = filtered.filter(n => n.cf_persona === p.cf)
+                    return (
+                      <div
+                        key={p.cf}
+                        draggable
+                        onDragStart={e => { e.dataTransfer.setData('person-cf', p.cf); e.dataTransfer.effectAllowed = 'copy' }}
+                        className="px-2 py-1.5 rounded bg-indigo-950/40 hover:bg-indigo-900/30 border border-indigo-800/30 cursor-grab active:cursor-grabbing"
+                        title="Trascina su un nodo per spostare o aggiungere"
+                      >
+                        <div className="text-xs font-medium text-slate-200 truncate">
+                          {p.cognome} {p.nome}
+                        </div>
+                        <div className="text-xs text-slate-500 font-mono truncate">{p.cf}</div>
+                        {nodiDellaPersona.length > 0 && (
+                          <div className="text-xs text-indigo-400/70 truncate">
+                            {nodiDellaPersona.map(n => n.nome_uo ?? n.id).join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -1320,6 +1564,97 @@ export default function PosizioniCanvas() {
             />
           </div>
         )}
+
+        {/* ── Vista Stampa overlay ─────────────────────────────────────────── */}
+        {printMode && (
+          <div className="absolute inset-0 z-20 flex" style={{ background: '#f3f4f6' }}>
+            {/* Pannello sinistra — lista pin */}
+            <div className="w-64 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
+              <div className="p-3 border-b border-gray-200 flex items-center justify-between">
+                <span className="font-medium text-sm text-gray-700">Pagine (viste fissate)</span>
+                <button
+                  onClick={() => setPrintMode(false)}
+                  className="p-1 rounded hover:bg-gray-100"
+                >
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                {pins.length === 0 ? (
+                  <p className="text-xs text-gray-400 p-2">
+                    Nessuna vista fissata. Fissa dei nodi dalla vista organigramma (tasto destro → Fissa).
+                  </p>
+                ) : (
+                  [...pins].sort((a, b) => a.pinnedAt - b.pinnedAt).map(pin => (
+                    <div
+                      key={pin.id}
+                      onClick={() => setActivePrintPin(pin.id)}
+                      className={[
+                        'p-2 rounded cursor-pointer border transition-colors',
+                        activePrintPin === pin.id
+                          ? 'border-indigo-500 bg-indigo-50'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      ].join(' ')}
+                    >
+                      <p className="text-sm font-medium text-gray-800 truncate">{pin.label}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <label className="text-xs text-gray-500">Livelli:</label>
+                        <input
+                          type="number" min={1} max={8}
+                          value={pin.maxDepth ?? 3}
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => updatePin(pin.id, { maxDepth: Math.max(1, Math.min(8, +e.target.value)) })}
+                          className="w-12 text-xs border border-gray-300 rounded px-1 py-0.5 text-gray-700"
+                        />
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="p-3 border-t border-gray-200">
+                <button
+                  onClick={handleExportPdf}
+                  disabled={pdfExporting || pins.length === 0}
+                  className="w-full bg-indigo-600 text-white text-sm py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                >
+                  {pdfExporting ? 'Generazione PDF...' : `Esporta PDF (${pins.length} pagine)`}
+                </button>
+              </div>
+            </div>
+
+            {/* Area destra — preview */}
+            <div className="flex-1 overflow-auto p-8">
+              {activePrintPin ? (() => {
+                const pin = pins.find(p => p.id === activePrintPin)
+                if (!pin) return null
+                return (
+                  <div
+                    id="print-page-preview"
+                    style={{ background: 'white', boxShadow: '0 4px 24px rgba(0,0,0,.15)', display: 'inline-block', minWidth: 400 }}
+                  >
+                    <PrintOrgChart
+                      allNodes={filtered}
+                      personeMap={personaMap}
+                      rootId={activePrintPin}
+                      maxDepth={pin.maxDepth ?? 3}
+                      nodePositions={pin.nodePositions ?? {}}
+                      onNodeMove={(id, x, y) => {
+                        updatePin(activePrintPin, {
+                          nodePositions: { ...(pin.nodePositions ?? {}), [id]: { x, y } }
+                        })
+                      }}
+                      interactive
+                    />
+                  </div>
+                )
+              })() : (
+                <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                  Seleziona una pagina dal pannello
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {contextMenu && (
@@ -1337,6 +1672,14 @@ export default function PosizioniCanvas() {
           onDrillIn={() => handleDrillIn(contextMenu.nodeId)}
           onOpenDetail={() => { const n = filtered.find(n => n.id === contextMenu.nodeId); if (n) openDrawer(n) }}
           onCreateChild={() => handleCreateChildNode(contextMenu.nodeId)}
+          onRemove={() => {
+            const label = filtered.find(n => n.id === contextMenu.nodeId)?.nome_uo ?? contextMenu.nodeId
+            setPendingRemove({ nodeId: contextMenu.nodeId, label })
+          }}
+          onHardDelete={() => {
+            const label = filtered.find(n => n.id === contextMenu.nodeId)?.nome_uo ?? contextMenu.nodeId
+            setPendingHardDelete({ nodeId: contextMenu.nodeId, label })
+          }}
           onClose={() => setContextMenu(null)}
         />
       )}
@@ -1399,6 +1742,103 @@ export default function PosizioniCanvas() {
                 className="px-4 py-1.5 text-sm bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg transition-colors"
               >
                 Assegna
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Multi-assign modal: sposta o associa a più nodi */}
+      {pendingMultiAssign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-[460px] p-6 flex flex-col gap-4">
+            <h3 className="text-sm font-semibold text-slate-200">Persona già in posizione</h3>
+            <p className="text-sm text-slate-400">
+              <span className="text-indigo-300 font-medium">{pendingMultiAssign.personName}</span> è già
+              assegnata a {pendingMultiAssign.sourceNodeIds.length === 1 ? 'un nodo' : `${pendingMultiAssign.sourceNodeIds.length} nodi`}.
+              Come vuoi procedere per il nodo <span className="text-slate-100 font-medium">{pendingMultiAssign.targetNodeLabel}</span>?
+            </p>
+            {pendingMultiAssign.targetExistingCf && (
+              <p className="text-xs text-amber-400">
+                Il nodo target ha già <span className="font-medium">{pendingMultiAssign.targetExistingName ?? pendingMultiAssign.targetExistingCf}</span> — verrà sostituita.
+              </p>
+            )}
+            <div className="flex flex-col gap-2 mt-1">
+              <button
+                onClick={() => handleConfirmMultiAssign('add')}
+                disabled={multiAssignLoading}
+                className="w-full text-left px-4 py-3 bg-indigo-900/30 hover:bg-indigo-900/50 border border-indigo-700/50 rounded-lg transition-colors disabled:opacity-50"
+              >
+                <div className="text-sm font-medium text-indigo-300">Associa a più nodi</div>
+                <div className="text-xs text-slate-400 mt-0.5">
+                  La persona rimane sui nodi attuali e viene aggiunta anche a <span className="text-slate-200">{pendingMultiAssign.targetNodeLabel}</span>.
+                </div>
+              </button>
+              <button
+                onClick={() => handleConfirmMultiAssign('move')}
+                disabled={multiAssignLoading}
+                className="w-full text-left px-4 py-3 bg-slate-800/60 hover:bg-slate-800 border border-slate-600/50 rounded-lg transition-colors disabled:opacity-50"
+              >
+                <div className="text-sm font-medium text-slate-200">Sposta</div>
+                <div className="text-xs text-slate-400 mt-0.5">
+                  La persona viene rimossa dai nodi attuali e assegnata solo a <span className="text-slate-200">{pendingMultiAssign.targetNodeLabel}</span>.
+                </div>
+              </button>
+            </div>
+            <div className="flex justify-end pt-1">
+              <button onClick={() => setPendingMultiAssign(null)} disabled={multiAssignLoading}
+                className="px-4 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+                Annulla
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remove node confirmation modal */}
+      {pendingRemove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-96 p-6 flex flex-col gap-4">
+            <h3 className="text-sm font-semibold text-amber-300">Rimuovi nodo</h3>
+            <p className="text-sm text-slate-400">
+              Rimuovi <span className="text-slate-100 font-medium">{pendingRemove.label}</span>?
+            </p>
+            <p className="text-xs text-slate-500">
+              Il nodo verrà disattivato (<code className="font-mono bg-slate-800 px-1 rounded">deleted_at</code>) ma resterà nello storico e potrà essere ripristinato.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setPendingRemove(null)} disabled={nodeActionLoading}
+                className="px-4 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+                Annulla
+              </button>
+              <button onClick={handleConfirmRemove} disabled={nodeActionLoading}
+                className="px-4 py-1.5 text-sm bg-amber-700 hover:bg-amber-600 text-white rounded-lg transition-colors disabled:opacity-50">
+                {nodeActionLoading ? 'Rimozione…' : 'Rimuovi'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hard delete node confirmation modal */}
+      {pendingHardDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 border border-red-800 rounded-xl shadow-2xl w-96 p-6 flex flex-col gap-4">
+            <h3 className="text-sm font-semibold text-red-400">Elimina nodo definitivamente</h3>
+            <p className="text-sm text-slate-400">
+              Elimina <span className="text-slate-100 font-medium">{pendingHardDelete.label}</span>?
+            </p>
+            <p className="text-xs text-red-400">
+              Attenzione: il nodo verrà cancellato fisicamente dal database e non potrà essere recuperato.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setPendingHardDelete(null)} disabled={nodeActionLoading}
+                className="px-4 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+                Annulla
+              </button>
+              <button onClick={handleConfirmHardDelete} disabled={nodeActionLoading}
+                className="px-4 py-1.5 text-sm bg-red-700 hover:bg-red-600 text-white rounded-lg transition-colors disabled:opacity-50">
+                {nodeActionLoading ? 'Eliminazione…' : 'Elimina definitivamente'}
               </button>
             </div>
           </div>

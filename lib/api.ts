@@ -44,6 +44,9 @@ export const api = {
     delete: (id: string): Promise<{ success: boolean; message?: string }> =>
       fetch(u(`/api/org/${encodeURIComponent(id)}`), { method: 'DELETE' }).then(r => json(r)),
 
+    hardDelete: (id: string): Promise<{ success: boolean; error?: string }> =>
+      fetch(u(`/api/org/${encodeURIComponent(id)}?hard=1`), { method: 'DELETE' }).then(r => json(r)),
+
     restore: (id: string): Promise<{ success: boolean }> =>
       fetch(u(`/api/org/${encodeURIComponent(id)}/restore`), { method: 'POST' }).then(r => json(r)),
 
@@ -280,6 +283,50 @@ export const api = {
       }).then(r => json(r)),
   },
 
+  export: {
+    orgPlus: {
+      validate: (): Promise<{ errors: Record<string, unknown>[]; warnings: Record<string, unknown>[] }> =>
+        fetch(u('/api/export/org-plus?validate=1')).then(r => json(r)),
+
+      download: async (): Promise<void> => {
+        const res = await fetch(u('/api/export/org-plus'))
+        if (!res.ok) throw new Error(await res.text())
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        const now = new Date()
+        const d = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+        a.href = url
+        a.download = `Gruppo_Il_Sole_24_ORE_Per_ORG_PLUS_${d}.xlsx`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(url)
+      },
+    },
+
+    tnsOrg: {
+      validate: (): Promise<{ errors: Record<string, unknown>[]; warnings: Record<string, unknown>[] }> =>
+        fetch(u('/api/export/tns-org?validate=1')).then(r => json(r)),
+
+      download: async (): Promise<void> => {
+        const res = await fetch(u('/api/export/tns-org'))
+        if (!res.ok) throw new Error(await res.text())
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        const now = new Date()
+        const d = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+        a.href = url
+        a.download = `TNS24_Gruppo_Il_Sole_24_ORE_ORG_PLUS_${d}.xlsx`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(url)
+      },
+    },
+  },
+
   import: {
     preview: async (file: File): Promise<{ sheetNames: string[]; headers: string[]; sampleRows: Record<string, unknown>[] }> => {
       const fd = new FormData()
@@ -327,6 +374,28 @@ export const api = {
       const fd = new FormData()
       fd.append('file', file)
       return fetch(u('/api/import/tns'), { method: 'POST', body: fd }).then(r => json(r))
+    },
+
+    verificaDipendenti: {
+      analyze: async (file: File): Promise<unknown> => {
+        const fd = new FormData()
+        fd.append('file', file)
+        return fetch(u('/api/import/verifica-dipendenti'), { method: 'POST', body: fd }).then(r => json(r))
+      },
+
+      execute: async (persone: unknown[]): Promise<unknown> =>
+        fetch(u('/api/import/verifica-dipendenti/execute'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ persone }),
+        }).then(r => json(r)),
+
+      elimina: async (cfs: string[], decorrenza: string): Promise<unknown> =>
+        fetch(u('/api/import/verifica-dipendenti/elimina'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cfs, decorrenza }),
+        }).then(r => json(r)),
     },
 
     schedaMovimento: {

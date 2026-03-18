@@ -12,6 +12,8 @@ import AgentiView from '@/components/views/AgentiView'
 import AccordionSectionView from '@/components/views/AccordionSectionView'
 import DashboardView from '@/components/views/DashboardView'
 import ImportSchedaMovimentoView from '@/components/views/ImportSchedaMovimentoView'
+import ExportView from '@/components/views/ExportView'
+import ImportVerificaDipendentiView from '@/components/views/ImportVerificaDipendentiView'
 import { useHRStore } from '@/store/useHRStore'
 import type { ActiveSection } from '@/types'
 
@@ -36,6 +38,7 @@ export default function Home() {
   const ImportView =
     activeView === 'enrich' ? ImportEnrichView :
     activeView === 'scheda-movimento' ? ImportSchedaMovimentoView :
+    activeView === 'verifica-dipendenti' ? ImportVerificaDipendentiView :
     ImportBulkView
 
   return (
@@ -49,6 +52,7 @@ export default function Home() {
       {mounted.has('agenti') && <div className={vis('agenti')}><AgentiView /></div>}
       {mounted.has('accordion') && <div className={vis('accordion')}><AccordionSectionView /></div>}
       {mounted.has('dashboard') && <div className={vis('dashboard')}><DashboardView /></div>}
+      {mounted.has('esportazioni') && <div className={vis('esportazioni')}><ExportView /></div>}
     </AppShell>
   )
 }

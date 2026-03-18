@@ -183,8 +183,8 @@ export interface StrutturaTns {
   person_count?: number
 }
 
-export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico' | 'data-cleaning' | 'db-live' | 'agenti' | 'accordion' | 'dashboard'
-export type ActiveView = 'posizioni' | 'persone-ts' | 'tns' | 'nodi' | 'persone' | 'ruoli-tns' | 'strutture-tns' | 'variabili' | 'bulk' | 'enrich' | 'scheda-movimento' | 'dc-duplicati' | 'dc-bulk-edit' | 'dc-merge' | 'ordine-servizio' | 'accordion-uo' | 'accordion-tns' | 'accordion-responsabili'
+export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico' | 'data-cleaning' | 'db-live' | 'agenti' | 'accordion' | 'dashboard' | 'esportazioni'
+export type ActiveView = 'posizioni' | 'persone-ts' | 'tns' | 'nodi' | 'persone' | 'ruoli-tns' | 'strutture-tns' | 'variabili' | 'bulk' | 'enrich' | 'scheda-movimento' | 'verifica-dipendenti' | 'dc-duplicati' | 'dc-bulk-edit' | 'dc-merge' | 'ordine-servizio' | 'accordion-uo' | 'accordion-tns' | 'accordion-responsabili'
 
 export type ProposalTipo =
   | 'INSERT_PERSONA'
@@ -262,4 +262,6 @@ export interface PinnedView {
   label: string
   mode: 'navigate' | 'expand'
   pinnedAt: number
+  maxDepth?: number
+  nodePositions?: Record<string, { x: number; y: number }>
 }

@@ -1,4 +1,4 @@
-# HR Platform - Sole 24 Ore
+2# HR Platform - Sole 24 Ore
 
 Piattaforma avanzata per la gestione delle Risorse Umane, visualizzazione dell'Organigramma e analisi dei dati (Timesheet, TNS, ecc.).
 

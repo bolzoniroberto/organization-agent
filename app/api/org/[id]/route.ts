@@ -38,15 +38,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
+    const hard = new URL(req.url).searchParams.get('hard') === '1'
     const d = db()
     const existing = d.prepare('SELECT * FROM nodi_organigramma WHERE id = ?').get(id) as Record<string, unknown> | undefined
     if (!existing) return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
 
-    d.prepare('UPDATE nodi_organigramma SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?').run(id)
-    writeChangeLog('nodo_org', id, existing.nome_uo as string ?? null, 'DELETE', null, null, null)
+    if (hard) {
+      d.prepare('DELETE FROM nodi_organigramma WHERE id = ?').run(id)
+      writeChangeLog('nodo_org', id, existing.nome_uo as string ?? null, 'HARD_DELETE', null, null, 'Eliminazione fisica nodo')
+    } else {
+      d.prepare('UPDATE nodi_organigramma SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?').run(id)
+      writeChangeLog('nodo_org', id, existing.nome_uo as string ?? null, 'DELETE', null, null, null)
+    }
     return NextResponse.json({ success: true })
   } catch (e) {
     return NextResponse.json({ success: false, error: String(e) }, { status: 500 })

@@ -28,21 +28,38 @@ const MAX_ITER = 5
 const ALL_FIELD_OPTIONS: { group: string; fields: { value: string; label: string }[] }[] = [
   { group: 'Struttura', fields: [
     { value: '', label: '— nessuno —' },
-    { value: 'nome', label: 'Nome' },
+    { value: 'nome', label: 'Nome struttura' },
     { value: 'codice', label: 'Codice' },
     { value: 'livello', label: 'Livello' },
     { value: 'tipo', label: 'Tipo' },
     { value: 'sede_tns', label: 'Sede TNS' },
-    { value: 'titolare', label: 'Titolare' },
+    { value: 'titolare', label: 'Titolare (testo)' },
     { value: 'cf_titolare', label: 'CF Titolare' },
     { value: 'cdc', label: 'CdC' },
     { value: 'descrizione', label: 'Descrizione' },
   ]},
+  { group: 'Persona titolare', fields: [
+    { value: 'p:nome_completo', label: 'Nome Cognome' },
+    { value: 'p:cognome', label: 'Cognome' },
+    { value: 'p:nome', label: 'Nome' },
+    { value: 'p:qualifica', label: 'Qualifica' },
+    { value: 'p:area', label: 'Area' },
+    { value: 'p:societa', label: 'Società' },
+    { value: 'p:email', label: 'Email' },
+    { value: 'p:matricola', label: 'Matricola' },
+  ]},
 ]
 const ALL_FIELD_FLAT = ALL_FIELD_OPTIONS.flatMap(g => g.fields)
 
-function resolveField(s: StrutturaTns, field: string): string | null | undefined {
+function resolveField(s: StrutturaTns, field: string, personaMap?: Map<string, Persona>): string | null | undefined {
   if (!field) return null
+  if (field.startsWith('p:') && personaMap && s.cf_titolare) {
+    const p = personaMap.get(s.cf_titolare)
+    if (!p) return null
+    const key = field.slice(2)
+    if (key === 'nome_completo') return `${p.cognome ?? ''} ${p.nome ?? ''}`.trim() || null
+    return (p as unknown as Record<string, unknown>)[key] as string | null
+  }
   return (s as unknown as Record<string, unknown>)[field] as string | null
 }
 
@@ -50,10 +67,14 @@ export default function TnsCanvas() {
   const { struttureTns, persone, refreshAll, showToast } = useHRStore()
   const filtered = useMemo(() => struttureTns.filter(s => s.attivo !== 0 && !s.deleted_at), [struttureTns])
   const tns = useMemo(() => persone.filter((p): p is Persona & { codice_tns: string } => p.codice_tns != null), [persone])
+  const personaMap = useMemo(() => new Map(persone.filter(p => !p.deleted_at).map(p => [p.cf, p])), [persone])
 
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set())
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerRecord, setDrawerRecord] = useState<StrutturaTns | null>(null)
+  const [drawerMode, setDrawerMode] = useState<'view' | 'edit'>('view')
+  const [drawerForm, setDrawerForm] = useState<Record<string, string>>({})
+  const [drawerSaving, setDrawerSaving] = useState(false)
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<StrutturaTns[]>([])
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null)
@@ -63,8 +84,52 @@ export default function TnsCanvas() {
   const [groupByName, setGroupByName] = useState(false)
   const [leafListMode, setLeafListMode] = useState(false)
   const [showFieldsPanel, setShowFieldsPanel] = useState(false)
+  const [showSenzaPadre, setShowSenzaPadre] = useState(false)
+  const [senzaPadreSearch, setSenzaPadreSearch] = useState('')
+  const [leftPanelWidth, setLeftPanelWidth] = useState(240)
+  const [isResizingLeftPanel, setIsResizingLeftPanel] = useState(false)
+  // Crea struttura TNS
+  const [createModal, setCreateModal] = useState<{ padre: string | null } | null>(null)
+  const [createCodice, setCreateCodice] = useState('')
+  const [createNome, setCreateNome] = useState('')
+  const [createLoading, setCreateLoading] = useState(false)
+  // Drop persona senza padre su un nodo TNS
+  const [pendingDropPerson, setPendingDropPerson] = useState<{
+    cf: string; personName: string; personCodice: string | null
+    targetCodice: string; targetLabel: string
+    strutturEsiste: boolean
+  } | null>(null)
+  const [dropNewCodice, setDropNewCodice] = useState('')
+  const [dropNewNome, setDropNewNome] = useState('')
+  const [dropLoading, setDropLoading] = useState(false)
   const prevVisibleIdsRef = useRef<Set<string>>(new Set())
   const compactModeRef = useRef(false)
+
+  useEffect(() => {
+    if (!isResizingLeftPanel) return
+    const onMove = (e: MouseEvent) => setLeftPanelWidth(Math.max(200, Math.min(e.clientX, 600)))
+    const onUp = () => setIsResizingLeftPanel(false)
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+  }, [isResizingLeftPanel])
+
+  const personeSenzaPadreTns = useMemo(() => {
+    return persone
+      .filter(p => !p.deleted_at && p.codice_tns != null && p.padre_tns == null)
+      .sort((a, b) => (a.cognome ?? '').localeCompare(b.cognome ?? ''))
+  }, [persone])
+
+  const personeSenzaPadreFiltrate = useMemo(() => {
+    if (!senzaPadreSearch) return personeSenzaPadreTns
+    const lower = senzaPadreSearch.toLowerCase()
+    return personeSenzaPadreTns.filter(p =>
+      p.cf.toLowerCase().includes(lower) ||
+      (p.cognome?.toLowerCase().includes(lower) ?? false) ||
+      (p.nome?.toLowerCase().includes(lower) ?? false)
+    )
+  }, [personeSenzaPadreTns, senzaPadreSearch])
+
   const { fitView, setCenter } = useReactFlow()
   const { zoom } = useViewport()
   const { drillRootId, drillMode, drillInto, drillTo } = useOrgDrill()
@@ -344,8 +409,80 @@ export default function TnsCanvas() {
 
   const openDrawer = useCallback((codice: string) => {
     const s = filtered.find(s => s.codice === codice) ?? null
-    setDrawerRecord(s); setDrawerOpen(true); setFocusedNode(codice)
+    setDrawerRecord(s)
+    setDrawerMode('view')
+    setDrawerForm({})
+    setDrawerOpen(true)
+    setFocusedNode(codice)
   }, [filtered])
+
+  const handleDropPersonOnTns = useCallback((targetCodice: string, cf: string) => {
+    const persona = persone.find(p => p.cf === cf)
+    if (!persona) return
+    const personName = `${persona.cognome ?? ''} ${persona.nome ?? ''}`.trim() || cf
+    const targetLabel = filtered.find(s => s.codice === targetCodice)?.nome ?? targetCodice
+    const strutturEsiste = persona.codice_tns != null &&
+      struttureTns.some(s => s.codice === persona.codice_tns && !s.deleted_at)
+    setDropNewCodice(persona.codice_tns ?? '')
+    setDropNewNome(personName)
+    setPendingDropPerson({
+      cf, personName, personCodice: persona.codice_tns,
+      targetCodice, targetLabel, strutturEsiste
+    })
+  }, [persone, filtered, struttureTns])
+
+  const handleConfirmDropAttach = useCallback(async () => {
+    if (!pendingDropPerson?.personCodice) return
+    setDropLoading(true)
+    try {
+      await api.struttureTns.update(pendingDropPerson.personCodice, { padre: pendingDropPerson.targetCodice })
+      await api.persone.update(pendingDropPerson.cf, { padre_tns: pendingDropPerson.targetCodice })
+      showToast(`${pendingDropPerson.personName} agganciato a ${pendingDropPerson.targetLabel}`, 'success')
+      await refreshAll()
+    } catch (e) { showToast(String(e), 'error') }
+    finally { setDropLoading(false); setPendingDropPerson(null) }
+  }, [pendingDropPerson, showToast, refreshAll])
+
+  const handleConfirmDropCreate = useCallback(async () => {
+    if (!pendingDropPerson || !dropNewCodice.trim()) return
+    setDropLoading(true)
+    try {
+      const codice = dropNewCodice.trim()
+      const personName = pendingDropPerson.personName
+      await api.struttureTns.create({
+        codice,
+        nome: dropNewNome.trim() || personName,
+        padre: pendingDropPerson.targetCodice,
+        cf_titolare: pendingDropPerson.cf,
+        titolare: personName,
+        attivo: 1,
+      })
+      await api.persone.update(pendingDropPerson.cf, {
+        padre_tns: pendingDropPerson.targetCodice,
+        codice_tns: codice,
+      })
+      showToast(`Struttura "${codice}" creata sotto ${pendingDropPerson.targetLabel}`, 'success')
+      await refreshAll()
+    } catch (e) { showToast(String(e), 'error') }
+    finally { setDropLoading(false); setPendingDropPerson(null) }
+  }, [pendingDropPerson, dropNewCodice, dropNewNome, showToast, refreshAll])
+
+  const handleConfirmCreate = useCallback(async () => {
+    if (!createCodice.trim()) return
+    setCreateLoading(true)
+    try {
+      await api.struttureTns.create({
+        codice: createCodice.trim(),
+        nome: createNome.trim() || null,
+        padre: createModal?.padre ?? null,
+        attivo: 1,
+      })
+      showToast(`Struttura "${createCodice.trim()}" creata`, 'success')
+      await refreshAll()
+      setCreateModal(null); setCreateCodice(''); setCreateNome('')
+    } catch (e) { showToast(String(e), 'error') }
+    finally { setCreateLoading(false) }
+  }, [createCodice, createNome, createModal, showToast, refreshAll])
 
   const collapseToRoot = useCallback(() => {
     const allCodici = new Set(filtered.map(s => s.codice))
@@ -417,8 +554,8 @@ export default function TnsCanvas() {
         const leafListChildren = leafListMap.get(codice)
         const leafList = leafListChildren?.map(child => ({
           id: child.id,
-          label: resolveField(child.item, nodeFields[0]) ?? child.id,
-          sublabel: resolveField(child.item, nodeFields[1]) ?? undefined,
+          label: resolveField(child.item, nodeFields[0], personaMap) ?? child.id,
+          sublabel: resolveField(child.item, nodeFields[1], personaMap) ?? undefined,
           tipo: 'TNS' as const,
           onOpenDrawer: () => openDrawer(child.id)
         }))
@@ -427,7 +564,7 @@ export default function TnsCanvas() {
         const groupedPersons = gpList?.map(gs => ({
           id: gs.codice,
           label: gs.titolare ?? gs.nome ?? gs.codice,
-          sublabel: resolveField(gs, nodeFields[1]) ?? undefined,
+          sublabel: resolveField(gs, nodeFields[1], personaMap) ?? undefined,
           onOpenDrawer: () => openDrawer(gs.codice)
         }))
 
@@ -435,12 +572,12 @@ export default function TnsCanvas() {
         const childrenCountVal = leafList ? leafListChildren!.length : totalChildren
 
         const label = gpList
-          ? (resolveField(strutturaTnsMap.get(codice) ?? gpList[0], nodeFields[0]) ?? codice)
-          : (s ? (resolveField(s, nodeFields[0]) ?? codice) : codice)
+          ? (resolveField(strutturaTnsMap.get(codice) ?? gpList[0], nodeFields[0], personaMap) ?? codice)
+          : (s ? (resolveField(s, nodeFields[0], personaMap) ?? codice) : codice)
         const sublabel = gpList
           ? `${gpList.length} strutture`
-          : (s && nodeFields[1] ? resolveField(s, nodeFields[1]) : undefined)
-        const extraDetail = s && nodeFields[2] ? resolveField(s, nodeFields[2]) : undefined
+          : (s && nodeFields[1] ? resolveField(s, nodeFields[1], personaMap) : undefined)
+        const extraDetail = s && nodeFields[2] ? resolveField(s, nodeFields[2], personaMap) : undefined
 
         return {
           id: codice,
@@ -463,6 +600,7 @@ export default function TnsCanvas() {
             onExpand: () => toggleCollapse(codice),
             onExpandOverflow: () => {},
             onOpenDrawer: gpList ? () => {} : () => openDrawer(codice),
+            onDropPerson: (cf: string) => handleDropPersonOnTns(codice, cf),
             leafList,
             groupedPersons,
           },
@@ -490,7 +628,7 @@ export default function TnsCanvas() {
         while (c) { chain.unshift(c); c = filtered.find(n => n.codice === c)?.padre ?? null }
         const breadcrumbLabel = chain.map(id => {
           const s = filtered.find(n => n.codice === id)
-          return s ? (resolveField(s, nodeFields[0]) ?? id) : id
+          return s ? (resolveField(s, nodeFields[0], personaMap) ?? id) : id
         }).join(' › ')
         const lastAncestor = chain[chain.length - 1]
         const crumbNode: Node = {
@@ -522,7 +660,7 @@ export default function TnsCanvas() {
   }, [visibleTree, collapsedSet, childCountMap, highlightedNode,
       toggleCollapse, semanticStatusMap, activePath, compactMode, openDrawer,
       strutturaTnsMap, nodeFields, leafListMode, groupedMap, groupByName,
-      drillAncestorSet, drillRootId, filtered])
+      drillAncestorSet, drillRootId, filtered, personaMap])
 
   useEffect(() => {
     prevVisibleIdsRef.current = new Set(nodes.filter(n => n.type === 'orgNode').map(n => n.id))
@@ -716,7 +854,34 @@ export default function TnsCanvas() {
           {dragEditMode ? '✎ Modifica attiva' : '✎ Modifica struttura'}
         </button>
 
-        {/* 7. Spacer */}
+        {/* 7. Nuova struttura */}
+        <button
+          onClick={() => { setCreateCodice(''); setCreateNome(''); setCreateModal({ padre: null }) }}
+          className="flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md border border-green-700 text-green-400 hover:bg-green-900/20 transition-colors"
+        >
+          + Nuova struttura
+        </button>
+
+        {/* 8. Senza padre TNS toggle */}
+        <button
+          onClick={() => setShowSenzaPadre(v => !v)}
+          className={[
+            'flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md border transition-colors',
+            showSenzaPadre
+              ? 'bg-rose-900/20 border-rose-700 text-rose-300'
+              : 'border-slate-600 text-slate-400 hover:text-slate-200',
+          ].join(' ')}
+        >
+          <span className={[
+            'inline-flex items-center justify-center w-4 h-4 rounded-full text-xs font-bold',
+            personeSenzaPadreTns.length > 0 ? 'bg-rose-500 text-white' : 'bg-slate-600 text-slate-400'
+          ].join(' ')}>
+            {personeSenzaPadreTns.length}
+          </span>
+          Senza padre TNS
+        </button>
+
+        {/* 8. Spacer */}
         <div className="flex-1" />
 
         {/* 8. Focus indicator */}
@@ -797,6 +962,62 @@ export default function TnsCanvas() {
       </div>
 
       <div className="flex flex-1 min-h-0">
+        {/* Pannello sinistro: persone senza padre TNS */}
+        {showSenzaPadre && (
+          <div
+            className="flex-shrink-0 border-r border-slate-700 bg-slate-900/60 flex flex-col overflow-hidden relative"
+            style={{ width: leftPanelWidth }}
+          >
+            <div
+              className={`absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-rose-500/50 transition-colors ${isResizingLeftPanel ? 'bg-rose-500' : ''}`}
+              onMouseDown={() => setIsResizingLeftPanel(true)}
+            />
+            <div className="px-3 py-2 border-b border-slate-700 flex-shrink-0">
+              <span className="text-xs font-medium text-rose-400">
+                Senza padre TNS ({personeSenzaPadreTns.length})
+              </span>
+            </div>
+            <div className="px-2 py-1 border-b border-slate-800 flex-shrink-0">
+              <p className="text-xs text-slate-500 leading-tight">
+                Hanno <code className="font-mono bg-slate-800 px-0.5 rounded">codice_tns</code> ma nessun <code className="font-mono bg-slate-800 px-0.5 rounded">padre_tns</code>.
+              </p>
+            </div>
+            <div className="px-2 py-1.5 border-b border-slate-800 flex-shrink-0">
+              <input
+                type="text"
+                placeholder="Cerca..."
+                value={senzaPadreSearch}
+                onChange={e => setSenzaPadreSearch(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
+              {personeSenzaPadreFiltrate.length === 0 ? (
+                <p className="text-xs text-slate-600 italic text-center py-4">Nessuna</p>
+              ) : personeSenzaPadreFiltrate.map(p => (
+                <div
+                  key={p.cf}
+                  draggable
+                  onDragStart={e => { e.dataTransfer.setData('person-cf', p.cf); e.dataTransfer.effectAllowed = 'copy' }}
+                  className="px-2 py-1.5 rounded bg-rose-950/30 border border-rose-900/30 cursor-grab active:cursor-grabbing"
+                  title="Trascina su un nodo TNS per collegare"
+                >
+                  <div className="text-xs font-medium text-slate-200 truncate">
+                    {p.cognome} {p.nome}
+                  </div>
+                  <div className="text-xs text-slate-500 font-mono truncate">{p.cf}</div>
+                  {p.codice_tns && (
+                    <div className="text-xs text-rose-400/70 truncate">TNS: {p.codice_tns}</div>
+                  )}
+                  {p.qualifica && (
+                    <div className="text-xs text-slate-600 truncate">{p.qualifica}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 min-w-0 relative">
           <ReactFlow
             nodes={derivedNodes} edges={edges}
@@ -823,38 +1044,191 @@ export default function TnsCanvas() {
         </div>
 
         {drawerOpen && drawerRecord && (
-          <div className="w-[420px] flex-shrink-0 border-l border-slate-700 bg-slate-900 overflow-y-auto">
-            <div className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="text-base font-semibold text-slate-100">{drawerRecord.nome ?? drawerRecord.codice}</h2>
-                  <p className="text-xs text-slate-400">{drawerRecord.codice} · {drawerRecord.livello ?? '—'}</p>
-                </div>
+          <div className="w-[440px] flex-shrink-0 border-l border-slate-700 bg-slate-900 flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 flex-shrink-0">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-slate-100 truncate">{drawerRecord.nome ?? drawerRecord.codice}</h2>
+                <p className="text-xs text-slate-500">{drawerRecord.codice} · {drawerRecord.livello ?? '—'}</p>
+              </div>
+              <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                {drawerMode === 'view' ? (
+                  <button
+                    onClick={() => {
+                      setDrawerMode('edit')
+                      setDrawerForm(Object.fromEntries(
+                        Object.entries(drawerRecord).map(([k, v]) => [k, v == null ? '' : String(v)])
+                      ))
+                    }}
+                    className="px-3 py-1 text-xs bg-indigo-700 hover:bg-indigo-600 text-white rounded-md transition-colors"
+                  >
+                    Modifica
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => { setDrawerMode('view'); setDrawerForm({}) }}
+                      disabled={drawerSaving}
+                      className="px-3 py-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setDrawerSaving(true)
+                        try {
+                          const patch: Record<string, string | null> = {}
+                          for (const [k, v] of Object.entries(drawerForm)) {
+                            const orig = (drawerRecord as unknown as Record<string, unknown>)[k]
+                            const origStr = orig == null ? '' : String(orig)
+                            if (v !== origStr) patch[k] = v === '' ? null : v
+                          }
+                          if (Object.keys(patch).length > 0) {
+                            await api.struttureTns.update(drawerRecord.codice, patch)
+                            await refreshAll()
+                            const updated = struttureTns.find(s => s.codice === drawerRecord.codice)
+                            if (updated) setDrawerRecord(updated)
+                            showToast('Salvato', 'success')
+                          }
+                          setDrawerMode('view')
+                        } catch (e) { showToast(String(e), 'error') }
+                        finally { setDrawerSaving(false) }
+                      }}
+                      disabled={drawerSaving}
+                      className="px-3 py-1 text-xs bg-green-700 hover:bg-green-600 text-white rounded-md transition-colors disabled:opacity-50"
+                    >
+                      {drawerSaving ? 'Salvo…' : 'Salva'}
+                    </button>
+                  </>
+                )}
                 <button onClick={() => { setDrawerOpen(false); setFocusedNode(null) }}
                   className="p-1.5 hover:bg-slate-700 rounded-md text-slate-400">
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <dl className="space-y-2 text-sm">
-                {[
-                  ['Codice', drawerRecord.codice],
-                  ['Nome', drawerRecord.nome],
-                  ['Padre', drawerRecord.padre],
-                  ['Livello', drawerRecord.livello],
-                  ['Tipo', drawerRecord.tipo],
-                  ['Attivo', drawerRecord.attivo === 1 ? 'Sì' : 'No'],
-                  ['CdC', drawerRecord.cdc],
-                  ['Titolare', drawerRecord.titolare],
-                  ['CF Titolare', drawerRecord.cf_titolare],
-                  ['Sede TNS', drawerRecord.sede_tns],
-                  ['Descrizione', drawerRecord.descrizione],
-                ].filter(([, v]) => v != null && v !== '').map(([k, v]) => (
-                  <div key={k as string} className="flex gap-2">
-                    <dt className="w-28 text-slate-500 shrink-0">{k}</dt>
-                    <dd className="text-slate-200 break-all">{String(v)}</dd>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto">
+              {drawerMode === 'view' ? (
+                <div className="p-4 space-y-0">
+                  {[
+                    ['Identificazione', [
+                      ['Codice', drawerRecord.codice],
+                      ['Nome', drawerRecord.nome],
+                      ['Padre', drawerRecord.padre],
+                      ['Livello', drawerRecord.livello],
+                      ['Tipo', drawerRecord.tipo],
+                      ['Attivo', drawerRecord.attivo === 1 ? 'Sì' : 'No'],
+                      ['CdC', drawerRecord.cdc],
+                      ['Sede TNS', drawerRecord.sede_tns],
+                      ['Descrizione', drawerRecord.descrizione],
+                    ]],
+                    ['Persone', [
+                      ['Titolare', drawerRecord.titolare],
+                      ['CF Titolare', drawerRecord.cf_titolare],
+                      ['Viaggiatore', drawerRecord.viaggiatore],
+                      ['Approvatore', drawerRecord.approvatore],
+                      ['Cassiere', drawerRecord.cassiere],
+                      ['Visualizzatore', drawerRecord.visualizzatore],
+                      ['Segretario', drawerRecord.segretario],
+                      ['Controllore', drawerRecord.controllore],
+                      ['Amministrazione', drawerRecord.amministrazione],
+                      ['Controllore asst', drawerRecord.controllore_asst],
+                      ['Segretario asst', drawerRecord.segretario_asst],
+                      ['Segreteria red asst', drawerRecord.segreteria_red_asst],
+                    ]],
+                    ['Ruoli', [
+                      ['Ruoli', drawerRecord.ruoli],
+                      ['Ruoli OLTRV', drawerRecord.ruoli_oltrv],
+                      ['Segr. redaz.', drawerRecord.segr_redaz],
+                      ['Ruoli AFC', drawerRecord.ruoli_afc],
+                      ['Ruoli HR', drawerRecord.ruoli_hr],
+                      ['Altri ruoli', drawerRecord.altri_ruoli],
+                      ['Gruppo sind.', drawerRecord.gruppo_sind],
+                    ]],
+                  ].map(([section, rows]) => {
+                    const visible = (rows as [string, unknown][]).filter(([, v]) => v != null && v !== '')
+                    if (!visible.length) return null
+                    return (
+                      <div key={section as string} className="mb-4">
+                        <p className="text-xs uppercase tracking-wider text-slate-600 font-medium mb-1.5">{section as string}</p>
+                        {visible.map(([k, v]) => (
+                          <div key={k} className="flex gap-2 py-1 border-b border-slate-800 last:border-0">
+                            <span className="w-36 text-xs text-slate-500 shrink-0 pt-0.5">{k}</span>
+                            <span className="text-sm text-slate-200 break-all">{String(v)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="p-4 space-y-5">
+                  {[
+                    { section: 'Identificazione', fields: [
+                      { key: 'nome', label: 'Nome' },
+                      { key: 'padre', label: 'Padre (codice)' },
+                      { key: 'livello', label: 'Livello' },
+                      { key: 'tipo', label: 'Tipo' },
+                      { key: 'cdc', label: 'Centro di costo' },
+                      { key: 'sede_tns', label: 'Sede TNS' },
+                      { key: 'descrizione', label: 'Descrizione' },
+                    ]},
+                    { section: 'Persone', fields: [
+                      { key: 'titolare', label: 'Titolare' },
+                      { key: 'cf_titolare', label: 'CF Titolare' },
+                      { key: 'viaggiatore', label: 'Viaggiatore' },
+                      { key: 'approvatore', label: 'Approvatore' },
+                      { key: 'cassiere', label: 'Cassiere' },
+                      { key: 'visualizzatore', label: 'Visualizzatore' },
+                      { key: 'segretario', label: 'Segretario' },
+                      { key: 'controllore', label: 'Controllore' },
+                      { key: 'amministrazione', label: 'Amministrazione' },
+                      { key: 'controllore_asst', label: 'Controllore asst' },
+                      { key: 'segretario_asst', label: 'Segretario asst' },
+                      { key: 'segreteria_red_asst', label: 'Segreteria red asst' },
+                    ]},
+                    { section: 'Ruoli', fields: [
+                      { key: 'ruoli', label: 'Ruoli' },
+                      { key: 'ruoli_oltrv', label: 'Ruoli OLTRV' },
+                      { key: 'segr_redaz', label: 'Segr. redaz.' },
+                      { key: 'ruoli_afc', label: 'Ruoli AFC' },
+                      { key: 'ruoli_hr', label: 'Ruoli HR' },
+                      { key: 'altri_ruoli', label: 'Altri ruoli' },
+                      { key: 'gruppo_sind', label: 'Gruppo sind.' },
+                    ]},
+                  ].map(({ section, fields }) => (
+                    <div key={section}>
+                      <p className="text-xs uppercase tracking-wider text-slate-600 font-medium mb-2">{section}</p>
+                      <div className="space-y-2">
+                        {fields.map(({ key, label }) => (
+                          <div key={key}>
+                            <label className="text-xs text-slate-500 block mb-0.5">{label}</label>
+                            <input
+                              value={drawerForm[key] ?? ''}
+                              onChange={e => setDrawerForm(f => ({ ...f, [key]: e.target.value }))}
+                              className="w-full px-2.5 py-1.5 text-sm bg-slate-800 border border-slate-700 rounded-md text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div>
+                    <p className="text-xs uppercase tracking-wider text-slate-600 font-medium mb-2">Stato</p>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={drawerForm['attivo'] === '1'}
+                        onChange={e => setDrawerForm(f => ({ ...f, attivo: e.target.checked ? '1' : '0' }))}
+                        className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-slate-300">Attivo</span>
+                    </label>
                   </div>
-                ))}
-              </dl>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -871,6 +1245,7 @@ export default function TnsCanvas() {
           onFocusExpand={() => handleFocusExpand(contextMenu.nodeId)}
           onDrillIn={() => handleDrillIn(contextMenu.nodeId)}
           onOpenDetail={() => { const s = filtered.find(s => s.codice === contextMenu.nodeId) ?? null; setDrawerRecord(s); setDrawerOpen(true) }}
+          onCreateChild={() => { setCreateCodice(''); setCreateNome(''); setCreateModal({ padre: contextMenu.nodeId }) }}
           onClose={() => setContextMenu(null)}
         />
       )}
@@ -895,6 +1270,120 @@ export default function TnsCanvas() {
               <button onClick={handleConfirmReparent} disabled={reparenting}
                 className="px-4 py-1.5 text-sm bg-green-700 hover:bg-green-600 text-white rounded-lg transition-colors disabled:opacity-50">
                 {reparenting ? 'Aggiorno…' : 'Conferma'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Crea struttura TNS modal */}
+      {createModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-96 p-6 flex flex-col gap-4">
+            <h3 className="text-sm font-semibold text-green-300">
+              {createModal.padre
+                ? `Nuova struttura figlia di "${filtered.find(s => s.codice === createModal.padre)?.nome ?? createModal.padre}"`
+                : 'Nuova struttura TNS radice'}
+            </h3>
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Codice <span className="text-red-400">*</span></label>
+                <input
+                  autoFocus
+                  value={createCodice}
+                  onChange={e => setCreateCodice(e.target.value)}
+                  placeholder="es. ABC-001"
+                  className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Nome</label>
+                <input
+                  value={createNome}
+                  onChange={e => setCreateNome(e.target.value)}
+                  placeholder="Nome descrittivo"
+                  className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end pt-1">
+              <button
+                onClick={() => { setCreateModal(null); setCreateCodice(''); setCreateNome('') }}
+                disabled={createLoading}
+                className="px-4 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleConfirmCreate}
+                disabled={createLoading || !createCodice.trim()}
+                className="px-4 py-1.5 text-sm bg-green-700 hover:bg-green-600 text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                {createLoading ? 'Creazione…' : 'Crea struttura'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drop persona senza padre TNS modal */}
+      {pendingDropPerson && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-[480px] p-6 flex flex-col gap-4">
+            <h3 className="text-sm font-semibold text-slate-200">Collega persona alla gerarchia TNS</h3>
+            <p className="text-sm text-slate-400">
+              <span className="text-indigo-300 font-medium">{pendingDropPerson.personName}</span> verrà
+              collegata sotto <span className="text-slate-100 font-medium">{pendingDropPerson.targetLabel}</span>.
+            </p>
+            <div className="flex flex-col gap-2">
+              {pendingDropPerson.strutturEsiste && (
+                <button
+                  onClick={handleConfirmDropAttach}
+                  disabled={dropLoading}
+                  className="w-full text-left px-4 py-3 bg-indigo-900/30 hover:bg-indigo-900/50 border border-indigo-700/50 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  <div className="text-sm font-medium text-indigo-300">Aggancia struttura esistente</div>
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    La struttura <span className="font-mono text-slate-300">{pendingDropPerson.personCodice}</span> diventa
+                    figlia di <span className="text-slate-200">{pendingDropPerson.targetLabel}</span>.
+                  </div>
+                </button>
+              )}
+              <div className="w-full px-4 py-3 bg-slate-800/60 border border-slate-600/50 rounded-lg">
+                <div className="text-sm font-medium text-slate-200 mb-2">Crea nuova struttura di approvazione</div>
+                <div className="flex flex-col gap-2">
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">Codice <span className="text-red-400">*</span></label>
+                    <input
+                      value={dropNewCodice}
+                      onChange={e => setDropNewCodice(e.target.value)}
+                      placeholder="es. ABC-001"
+                      className="w-full bg-slate-700 border border-slate-600 rounded px-2.5 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">Nome struttura</label>
+                    <input
+                      value={dropNewNome}
+                      onChange={e => setDropNewNome(e.target.value)}
+                      placeholder="Nome descrittivo"
+                      className="w-full bg-slate-700 border border-slate-600 rounded px-2.5 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <button
+                    onClick={handleConfirmDropCreate}
+                    disabled={dropLoading || !dropNewCodice.trim()}
+                    className="self-end px-4 py-1.5 text-sm bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {dropLoading ? 'Creazione…' : 'Crea e collega'}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <button onClick={() => setPendingDropPerson(null)} disabled={dropLoading}
+                className="px-4 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+                Annulla
               </button>
             </div>
           </div>

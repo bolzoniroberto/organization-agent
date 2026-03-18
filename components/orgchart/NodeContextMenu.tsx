@@ -1,6 +1,6 @@
 'use client'
 import React, { useEffect, useRef } from 'react'
-import { GitBranch, Navigation, FileText, X, Pin, PinOff, PlusCircle } from 'lucide-react'
+import { GitBranch, Navigation, FileText, X, Pin, PinOff, PlusCircle, Trash2, Trash } from 'lucide-react'
 
 interface NodeContextMenuProps {
   x: number
@@ -14,12 +14,15 @@ interface NodeContextMenuProps {
   onDrillIn: () => void
   onOpenDetail: () => void
   onCreateChild?: () => void
+  onRemove?: () => void
+  onHardDelete?: () => void
   onClose: () => void
 }
 
 export default function NodeContextMenu({
   x, y, label, hasChildren, isPinned, onPin, onUnpin,
-  onFocusExpand, onDrillIn, onOpenDetail, onCreateChild, onClose
+  onFocusExpand, onDrillIn, onOpenDetail, onCreateChild,
+  onRemove, onHardDelete, onClose
 }: NodeContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -77,6 +80,27 @@ export default function NodeContextMenu({
           <PlusCircle className="w-3.5 h-3.5 text-green-400 shrink-0" />
           <span>Nuova posizione a riporto</span>
         </button>
+      )}
+
+      {(onRemove || onHardDelete) && (
+        <div className="border-t border-slate-700 mt-1 pt-1">
+          {onRemove && (
+            <button onClick={() => { onRemove(); onClose() }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-amber-300 hover:bg-amber-600/20 transition-colors text-left">
+              <Trash className="w-3.5 h-3.5 shrink-0" />
+              <span>Rimuovi nodo</span>
+              <span className="ml-auto text-xs text-slate-500">soft</span>
+            </button>
+          )}
+          {onHardDelete && (
+            <button onClick={() => { onHardDelete(); onClose() }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:bg-red-600/20 transition-colors text-left">
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+              <span>Elimina nodo</span>
+              <span className="ml-auto text-xs text-slate-500">permanente</span>
+            </button>
+          )}
+        </div>
       )}
 
       <div className="border-t border-slate-700 mt-1 pt-1">

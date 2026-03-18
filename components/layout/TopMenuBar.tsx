@@ -118,6 +118,7 @@ export default function TopMenuBar() {
           <MenuItem label="Caricamento Iniziale" section="import" view="bulk" onSelect={nav} activeSection={activeSection} activeView={activeView} />
           <MenuItem label="Arricchimento Puntuale" section="import" view="enrich" onSelect={nav} activeSection={activeSection} activeView={activeView} />
           <MenuItem label="Scheda Movimenti" section="import" view="scheda-movimento" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="Verifica Dipendenti" section="import" view="verifica-dipendenti" onSelect={nav} activeSection={activeSection} activeView={activeView} />
         </MenuButton>
 
         <MenuButton label="Data Cleaning" active={activeSection === 'data-cleaning'}>
@@ -136,6 +137,18 @@ export default function TopMenuBar() {
           ].join(' ')}
         >
           Dashboard
+        </button>
+
+        <button
+          onClick={() => { setActiveSection('esportazioni'); setActiveView('nodi') }}
+          className={[
+            'px-3 py-1.5 text-sm rounded-md transition-colors',
+            activeSection === 'esportazioni'
+              ? 'bg-slate-700 text-slate-100'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          ].join(' ')}
+        >
+          Esporta
         </button>
 
         <button

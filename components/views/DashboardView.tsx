@@ -72,7 +72,7 @@ function avgBy(arr: Record<string, unknown>[], groupKey: string, valueKey: strin
 
 export default function DashboardView() {
   const { persone, nodi, timesheet } = useHRStore()
-  const [widgets, setWidgets] = usePersistedState<WidgetConfig[]>('hr-dashboard-widgets-v2', DEFAULT_WIDGETS)
+  const [widgets, setWidgets] = usePersistedState<WidgetConfig[]>('hr-dashboard-widgets-v3', DEFAULT_WIDGETS)
   const [showModal, setShowModal] = useState(false)
   const [newMetric, setNewMetric] = useState<MetricKey>('headcount_area')
   const [newChart, setNewChart] = useState<ChartType>('bar')
@@ -234,7 +234,7 @@ export default function DashboardView() {
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium text-slate-300">
           Grafici
-          <span className="ml-2 text-xs text-slate-600 font-normal">Trascina per riordinare · usa 1/3, 1/2, 1/1 e ↕ per ridimensionare</span>
+          <span className="ml-2 text-xs text-slate-600 font-normal">Trascina per riordinare · usa 1/4, 1/3, 1/2, 1/1 · altezza S/M/L</span>
         </span>
         <button
           onClick={() => { setNewMetric('headcount_area'); setNewChart('bar'); setNewW(6); setNewH(1); setShowModal(true) }}
@@ -305,6 +305,7 @@ export default function DashboardView() {
                   onChange={e => setNewW(Number(e.target.value) as WidgetW)}
                   className="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-sm text-slate-100 outline-none"
                 >
+                  <option value={3}>1/4</option>
                   <option value={4}>1/3</option>
                   <option value={6}>1/2</option>
                   <option value={12}>Piena</option>
@@ -317,8 +318,9 @@ export default function DashboardView() {
                   onChange={e => setNewH(Number(e.target.value) as WidgetH)}
                   className="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-sm text-slate-100 outline-none"
                 >
-                  <option value={1}>1× (normale)</option>
-                  <option value={2}>2× (doppia)</option>
+                  <option value={1}>S (compact)</option>
+                  <option value={2}>M (standard)</option>
+                  <option value={3}>L (tall)</option>
                 </select>
               </div>
             </div>

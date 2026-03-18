@@ -9,8 +9,8 @@ import {
 } from 'recharts'
 
 export type ChartType = 'bar' | 'horizontal' | 'pie' | 'stack100'
-export type WidgetW = 4 | 6 | 12
-export type WidgetH = 1 | 2
+export type WidgetW = 3 | 4 | 6 | 12
+export type WidgetH = 1 | 2 | 3
 
 export interface WidgetConfig {
   id: string
@@ -27,9 +27,19 @@ const PALETTE = [
   '#60a5fa','#a78bfa','#f472b6','#86efac','#fde68a',
 ]
 
-// row heights in px
-const ROW_H: Record<WidgetH, number> = { 1: 280, 2: 520 }
-const CHART_H: Record<WidgetH, number> = { 1: 170, 2: 410 }
+const ROW_H:   Record<WidgetH, number> = { 1: 260, 2: 400, 3: 560 }
+const CHART_H: Record<WidgetH, number> = { 1: 160, 2: 300, 3: 460 }
+
+const TOOLTIP_STYLE = {
+  background: '#0f172a',
+  border: '1px solid #334155',
+  borderRadius: 6,
+  fontSize: 12,
+}
+
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : s.slice(0, max) + '\u2026'
+}
 
 interface Props {
   config: WidgetConfig
@@ -54,15 +64,35 @@ export default function DashboardWidget({ config, data, onRemove, onResize }: Pr
 
   const renderChart = () => {
     if (config.chartType === 'pie') {
-      const outerRadius = config.h === 2 ? 140 : 70
+      const outerRadius = config.h === 3 ? 150 : config.h === 2 ? 110 : 65
+      const useLegend = data.length <= 8
+      const cy = useLegend ? '45%' : '50%'
       return (
         <ResponsiveContainer width="100%" height={chartH}>
           <PieChart>
-            <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={outerRadius}
-              label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`} labelLine={false}>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy={cy}
+              outerRadius={outerRadius}
+              label={useLegend ? undefined : ({ percent }) =>
+                (percent ?? 0) >= 0.04 ? `${((percent ?? 0) * 100).toFixed(0)}%` : undefined
+              }
+              labelLine={!useLegend}
+            >
               {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
             </Pie>
-            <Tooltip formatter={(v) => (v ?? 0).toLocaleString()} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
+            <Tooltip formatter={(v) => (v ?? 0).toLocaleString()} contentStyle={TOOLTIP_STYLE} />
+            {useLegend && (
+              <Legend
+                iconType="circle"
+                iconSize={8}
+                wrapperStyle={{ fontSize: 11, color: '#94a3b8', paddingTop: 4 }}
+                formatter={(value) => truncate(String(value), 22)}
+              />
+            )}
           </PieChart>
         </ResponsiveContainer>
       )
@@ -79,7 +109,7 @@ export default function DashboardWidget({ config, data, onRemove, onResize }: Pr
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
             <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fill: '#94a3b8', fontSize: 11 }} />
             <YAxis type="category" dataKey="_row" hide />
-            <Tooltip formatter={(v) => `${v}%`} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
+            <Tooltip formatter={(v) => `${v}%`} contentStyle={TOOLTIP_STYLE} />
             <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
             {keys.map((k, i) => <Bar key={k} dataKey={k} stackId="s" fill={PALETTE[i % PALETTE.length]} />)}
           </BarChart>
@@ -88,41 +118,51 @@ export default function DashboardWidget({ config, data, onRemove, onResize }: Pr
     }
 
     if (config.chartType === 'horizontal') {
+      const maxLabelLen = Math.max(...data.map(d => d.name.length), 0)
+      const leftMargin = Math.min(100, Math.max(60, maxLabelLen * 5.5))
+      const truncatedData = data.map(d => ({ ...d, name: truncate(d.name, 18) }))
       return (
         <ResponsiveContainer width="100%" height={chartH}>
-          <BarChart data={data} layout="vertical" margin={{ top: 5, right: 20, left: 60, bottom: 5 }}>
+          <BarChart data={truncatedData} layout="vertical" margin={{ top: 5, right: 20, left: leftMargin, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
             <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-            <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} width={60} />
-            <Tooltip formatter={(v) => (v ?? 0).toLocaleString()} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
+            <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} width={leftMargin} />
+            <Tooltip formatter={(v) => (v ?? 0).toLocaleString()} contentStyle={TOOLTIP_STYLE} />
             <Bar dataKey="value" fill={PALETTE[0]} radius={[0, 3, 3, 0]}>
-              {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
+              {truncatedData.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       )
     }
 
+    // bar (default)
+    const maxLabelLen = config.w <= 4 ? 10 : 14
+    const angle = config.w <= 4 ? -45 : -30
+    const bottomMargin = config.w <= 4 ? 50 : 35
+    const truncatedData = data.map(d => ({ ...d, name: truncate(d.name, maxLabelLen) }))
     return (
       <ResponsiveContainer width="100%" height={chartH}>
-        <BarChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 30 }}>
+        <BarChart data={truncatedData} margin={{ top: 5, right: 20, left: 0, bottom: bottomMargin }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-          <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={-35} textAnchor="end" interval={0} />
+          <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={angle} textAnchor="end" interval={0} />
           <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
-          <Tooltip formatter={(v) => (v ?? 0).toLocaleString()} contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
+          <Tooltip formatter={(v) => (v ?? 0).toLocaleString()} contentStyle={TOOLTIP_STYLE} />
           <Bar dataKey="value" fill={PALETTE[0]} radius={[3, 3, 0, 0]}>
-            {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
+            {truncatedData.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
           </Bar>
         </BarChart>
       </ResponsiveContainer>
     )
   }
 
+  const wLabels: Record<WidgetW, string> = { 3: '1/4', 4: '1/3', 6: '1/2', 12: '1/1' }
+  const hLabels: Record<WidgetH, string> = { 1: 'S', 2: 'M', 3: 'L' }
+
   return (
-    <div ref={setNodeRef} style={style} className="bg-slate-800 border border-slate-700 rounded-lg flex flex-col">
+    <div ref={setNodeRef} style={style} className="bg-slate-800 border border-slate-700 rounded-lg flex flex-col overflow-hidden shadow-md">
       {/* Header */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-slate-700 shrink-0">
-        {/* Drag handle */}
         <button
           {...attributes} {...listeners}
           className="text-slate-600 hover:text-slate-400 cursor-grab active:cursor-grabbing p-0.5 rounded"
@@ -135,11 +175,11 @@ export default function DashboardWidget({ config, data, onRemove, onResize }: Pr
 
         {/* Width controls */}
         <div className="flex items-center gap-0.5 mr-1">
-          {([4, 6, 12] as WidgetW[]).map(w => (
+          {([3, 4, 6, 12] as WidgetW[]).map(w => (
             <button
               key={w}
               onClick={() => onResize({ w })}
-              title={w === 4 ? '1/3' : w === 6 ? '1/2' : 'Larghezza piena'}
+              title={wLabels[w]}
               className={[
                 'px-1.5 py-0.5 text-[10px] rounded transition-colors',
                 config.w === w
@@ -147,19 +187,29 @@ export default function DashboardWidget({ config, data, onRemove, onResize }: Pr
                   : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700'
               ].join(' ')}
             >
-              {w === 4 ? '1/3' : w === 6 ? '1/2' : '1/1'}
+              {wLabels[w]}
             </button>
           ))}
         </div>
 
-        {/* Height toggle */}
-        <button
-          onClick={() => onResize({ h: config.h === 1 ? 2 : 1 })}
-          title={config.h === 1 ? 'Espandi altezza' : 'Riduci altezza'}
-          className="px-1.5 py-0.5 text-[10px] rounded text-slate-500 hover:text-slate-300 hover:bg-slate-700 transition-colors mr-1"
-        >
-          {config.h === 1 ? '↕ 2×' : '↕ 1×'}
-        </button>
+        {/* Height controls */}
+        <div className="flex items-center gap-0.5 mr-1">
+          {([1, 2, 3] as WidgetH[]).map(h => (
+            <button
+              key={h}
+              onClick={() => onResize({ h })}
+              title={`Altezza ${hLabels[h]}`}
+              className={[
+                'px-1.5 py-0.5 text-[10px] rounded transition-colors',
+                config.h === h
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700'
+              ].join(' ')}
+            >
+              {hLabels[h]}
+            </button>
+          ))}
+        </div>
 
         <button onClick={onRemove} className="text-slate-500 hover:text-slate-300 text-base leading-none px-1">×</button>
       </div>

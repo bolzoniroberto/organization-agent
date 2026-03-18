@@ -3,7 +3,8 @@ import { db, writeChangeLog } from '@/lib/db'
 
 const UPDATABLE = ['cognome','nome','data_nascita','sesso','email','societa','area','sotto_area',
   'cdc_amministrativo','sede','data_assunzione','data_fine_rapporto','tipo_contratto','qualifica',
-  'livello','modalita_presenze','part_time','ral','extra_data']
+  'livello','modalita_presenze','part_time','ral','extra_data','codice_tns','padre_tns',
+  'livello_tns','titolare_tns','viaggiatore','controllore_asst','sede_tns','gruppo_sind','matricola','job_title']
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ cf: string }> }) {
   try {
