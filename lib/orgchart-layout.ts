@@ -2,7 +2,7 @@
 
 const H_GAP = 290
 const V_GAP = 150
-const GRID_COLS = 8
+const GRID_COLS = 7
 
 export interface TreeNode<T> {
   item: T
