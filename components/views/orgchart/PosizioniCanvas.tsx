@@ -335,7 +335,8 @@ export default function PosizioniCanvas() {
   const pinClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (pinClickTimer.current) clearTimeout(pinClickTimer.current) }, [])
   const { showToast } = useHRStore()
-  const { pins, addPin, removePin, updatePin, isPinned } = usePinnedViews()
+  const { pins, addPin, removePin, updatePin, reorderPins, isPinned } = usePinnedViews()
+  const dragPinId = useRef<string | null>(null)
 
   const [printMode, setPrintMode] = useState(false)
   const [pdfExporting, setPdfExporting] = useState(false)
@@ -939,7 +940,7 @@ export default function PosizioniCanvas() {
 
   // Trigger readability alert if tree grows too big
   useEffect(() => {
-    if (viewMode === 'tree' && visualMode === 'flow' && !hasDismissedReadabilityAlert && nodes.length > 150) {
+    if (viewMode === 'tree' && visualMode === 'flow' && !hasDismissedReadabilityAlert && nodes.length > 25) {
       setShowReadabilityAlert(true)
     }
   }, [nodes.length, viewMode, visualMode, hasDismissedReadabilityAlert])
@@ -1026,6 +1027,7 @@ export default function PosizioniCanvas() {
             rootId={pin.id}
             maxDepth={pin.maxDepth ?? 3}
             nodePositions={pin.nodePositions ?? {}}
+            title={pin.label}
             interactive={false}
           />
         )
@@ -1388,8 +1390,13 @@ export default function PosizioniCanvas() {
                 </button>
                 {pinsExpanded && (
                   <div className="flex-shrink-0 border-b border-slate-700">
-                    {[...pins].sort((a, b) => a.pinnedAt - b.pinnedAt).map(pin => (
+                    {pins.map(pin => (
                       <div key={pin.id}
+                        draggable
+                        onDragStart={e => { dragPinId.current = pin.id; e.dataTransfer.effectAllowed = 'move' }}
+                        onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+                        onDrop={e => { e.preventDefault(); if (dragPinId.current && dragPinId.current !== pin.id) reorderPins(dragPinId.current, pin.id) }}
+                        onDragEnd={() => { dragPinId.current = null }}
                         className="flex items-center gap-1 px-2 py-1.5 hover:bg-slate-800 group cursor-pointer"
                         onClick={() => {
                           if (pinClickTimer.current) {
@@ -1585,19 +1592,28 @@ export default function PosizioniCanvas() {
                     Nessuna vista fissata. Fissa dei nodi dalla vista organigramma (tasto destro → Fissa).
                   </p>
                 ) : (
-                  [...pins].sort((a, b) => a.pinnedAt - b.pinnedAt).map(pin => (
+                  pins.map((pin, idx) => (
                     <div
                       key={pin.id}
+                      draggable
+                      onDragStart={e => { dragPinId.current = pin.id; e.dataTransfer.effectAllowed = 'move' }}
+                      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+                      onDrop={e => { e.preventDefault(); if (dragPinId.current && dragPinId.current !== pin.id) reorderPins(dragPinId.current, pin.id) }}
+                      onDragEnd={() => { dragPinId.current = null }}
                       onClick={() => setActivePrintPin(pin.id)}
                       className={[
-                        'p-2 rounded cursor-pointer border transition-colors',
+                        'p-2 rounded cursor-pointer border transition-colors select-none',
                         activePrintPin === pin.id
                           ? 'border-indigo-500 bg-indigo-50'
                           : 'border-gray-200 hover:bg-gray-50'
                       ].join(' ')}
                     >
-                      <p className="text-sm font-medium text-gray-800 truncate">{pin.label}</p>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-gray-300 text-xs cursor-grab flex-shrink-0">⠿</span>
+                        <span className="text-xs text-gray-400 flex-shrink-0 w-4">{idx + 1}.</span>
+                        <p className="text-sm font-medium text-gray-800 truncate flex-1">{pin.label}</p>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 pl-5">
                         <label className="text-xs text-gray-500">Livelli:</label>
                         <input
                           type="number" min={1} max={8}
@@ -1622,8 +1638,8 @@ export default function PosizioniCanvas() {
               </div>
             </div>
 
-            {/* Area destra — preview */}
-            <div className="flex-1 overflow-auto p-8">
+            {/* Area destra — preview scrollabile a dimensione naturale */}
+            <div className="flex-1 overflow-auto p-8 bg-gray-200">
               {activePrintPin ? (() => {
                 const pin = pins.find(p => p.id === activePrintPin)
                 if (!pin) return null
@@ -1638,6 +1654,7 @@ export default function PosizioniCanvas() {
                       rootId={activePrintPin}
                       maxDepth={pin.maxDepth ?? 3}
                       nodePositions={pin.nodePositions ?? {}}
+                      title={pin.label}
                       onNodeMove={(id, x, y) => {
                         updatePin(activePrintPin, {
                           nodePositions: { ...(pin.nodePositions ?? {}), [id]: { x, y } }

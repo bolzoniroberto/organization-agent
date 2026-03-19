@@ -109,7 +109,12 @@ function DroppableStruttura({
   onDrop: (strutturaCodice: string, type: 'persona' | 'struttura', id: string, currentParent: string | null) => void
 }) {
   const s = treeNode.struttura
-  const { setNodeRef, isOver } = useDroppable({ id: `struttura::${s.codice}`, data: { type: 'struttura', codice: s.codice } })
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `struttura::${s.codice}`, data: { type: 'struttura', codice: s.codice } })
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: `struttura::${s.codice}`,
+    data: { type: 'struttura', codice: s.codice, padre: s.padre ?? null },
+  })
+  const setNodeRef = (el: HTMLElement | null) => { setDropRef(el); setDragRef(el) }
   const [editing, setEditing] = useState(false)
   const [editNome, setEditNome] = useState(s.nome ?? '')
 
@@ -156,12 +161,18 @@ function DroppableStruttura({
   if (isDeleted && !showDeleted) return null
 
   return (
-    <Accordion.Item value={s.codice} className={`border-b ${COLOR_BORDER[treeNode.color]} ${isDeleted ? 'opacity-50' : ''}`}>
+    <Accordion.Item value={s.codice} className={`border-b ${COLOR_BORDER[treeNode.color]} ${isDeleted ? 'opacity-50' : ''} ${isDragging ? 'opacity-30' : ''}`}>
       <Accordion.Trigger
         ref={setNodeRef}
         className={`w-full px-3 py-2 transition-colors flex items-center justify-between data-[state=open]:bg-slate-800/80 ${isOver ? 'bg-indigo-900/30 ring-1 ring-inset ring-indigo-500' : 'hover:bg-slate-800'}`}
       >
         <div className="flex items-center gap-2 flex-1 min-w-0 text-left">
+          <span
+            {...listeners} {...attributes}
+            onClick={e => e.stopPropagation()}
+            className="cursor-grab text-slate-600 hover:text-slate-400 flex-shrink-0"
+            title="Trascina per spostare la struttura"
+          >⠿</span>
           <ChevronDown className="w-3.5 h-3.5 flex-shrink-0 text-slate-500 transition-transform" />
           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${COLOR_DOT[treeNode.color]}`} />
           <span className="font-mono text-xs text-slate-400 flex-shrink-0">{s.codice}</span>
@@ -446,6 +457,12 @@ export default function AccordionTnsView() {
     return persone.find(p => p.cf === cf) ?? null
   }, [draggingId, persone])
 
+  const draggingStruttura = useMemo(() => {
+    if (!draggingId?.startsWith('struttura::')) return null
+    const codice = draggingId.replace('struttura::', '')
+    return struttureTns.find(s => s.codice === codice) ?? null
+  }, [draggingId, struttureTns])
+
   return (
     <DndContext collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="flex flex-col h-full bg-slate-950">
@@ -534,6 +551,12 @@ export default function AccordionTnsView() {
             <User className="w-3 h-3 text-indigo-400" />
             <span className="font-mono text-slate-300">{draggingPersona.cf}</span>
             {draggingPersona.cognome && <span className="text-slate-200">{draggingPersona.cognome} {draggingPersona.nome}</span>}
+          </div>
+        )}
+        {draggingStruttura && (
+          <div className="flex items-center gap-2 px-2 py-1 rounded text-xs bg-slate-700 border border-amber-500 shadow-xl">
+            <span className="font-mono text-slate-300">{draggingStruttura.codice}</span>
+            {draggingStruttura.nome && <span className="text-slate-200">{draggingStruttura.nome}</span>}
           </div>
         )}
       </DragOverlay>

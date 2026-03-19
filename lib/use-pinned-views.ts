@@ -26,8 +26,20 @@ export function usePinnedViews() {
     setPins(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
   }, [])
 
+  const reorderPins = useCallback((fromId: string, toId: string) => {
+    setPins(prev => {
+      const arr = [...prev]
+      const fromIdx = arr.findIndex(p => p.id === fromId)
+      const toIdx = arr.findIndex(p => p.id === toId)
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return prev
+      const [item] = arr.splice(fromIdx, 1)
+      arr.splice(toIdx, 0, item)
+      return arr
+    })
+  }, [])
+
   const pinnedIds = useMemo(() => new Set(pins.map(p => p.id)), [pins])
   const isPinned = useCallback((id: string) => pinnedIds.has(id), [pinnedIds])
 
-  return { pins, addPin, removePin, updatePin, isPinned }
+  return { pins, addPin, removePin, updatePin, reorderPins, isPinned }
 }

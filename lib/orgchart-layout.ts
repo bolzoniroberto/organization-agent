@@ -28,6 +28,7 @@ export interface LayoutConfig {
   verticalStackingDepth: number | null
   forcedVerticalNodes: Set<string>
   vGap?: number
+  hGap?: number
 }
 
 export interface BoundingBox {
@@ -102,6 +103,7 @@ export function layoutTree<T>(
   if (nodes.length === 0) return startX
 
   const vg = config.vGap ?? V_GAP
+  const hg = config.hGap ?? H_GAP
   let x = startX
 
   for (const node of nodes) {
@@ -113,13 +115,13 @@ export function layoutTree<T>(
 
     if (node.children.length === 0) {
       node.x = x
-      x += H_GAP
+      x += hg
     } else if (shouldStackVertically) {
       node.x = x
       let childY = (node.depth + 1) * vg
-      let maxChildRight = x + H_GAP
+      let maxChildRight = x + hg
       for (const child of node.children) {
-        child.x = x + H_GAP * 0.2
+        child.x = x + hg * 0.2
         child.y = childY
         const childRight = layoutTree(child.children, child.x, config)
         const yDelta = childY - child.depth * vg
@@ -138,15 +140,15 @@ export function layoutTree<T>(
     ) {
       const n = node.children.length
       const actualCols = Math.min(config.gridCols, n)
-      const gridWidth = actualCols * H_GAP
+      const gridWidth = actualCols * hg
       const gridStartX = x
 
-      node.x = gridStartX + gridWidth / 2 - H_GAP / 2
+      node.x = gridStartX + gridWidth / 2 - hg / 2
 
       for (let i = 0; i < n; i++) {
         const col = i % config.gridCols
         const row = Math.floor(i / config.gridCols)
-        node.children[i].x = gridStartX + col * H_GAP
+        node.children[i].x = gridStartX + col * hg
         node.children[i].y = (node.depth + 1 + row) * vg
       }
 
@@ -154,7 +156,7 @@ export function layoutTree<T>(
     } else {
       const subtreeStart = x
       x = layoutTree(node.children, x, config)
-      node.x = (subtreeStart + x - H_GAP) / 2
+      node.x = (subtreeStart + x - hg) / 2
     }
   }
 
