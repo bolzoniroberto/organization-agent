@@ -183,16 +183,15 @@ export function getBoundingBox<T>(nodes: TreeNode<T>[]): BoundingBox {
 export function findWidestHorizontalSubtree<T>(nodes: TreeNode<T>[]): TreeNode<T> | null {
   const all = flattenTree(nodes)
   let best: TreeNode<T> | null = null
-  let bestChildren = 0
+  let bestWidth = 0
   for (const n of all) {
-    if (
-      n.children.length > 0 &&
-      !n._verticalStacked &&
-      n.children.every(c => c.children.length === 0) &&
-      n.children.length > bestChildren
-    ) {
-      best = n
-      bestChildren = n.children.length
+    if (n.children.length > 1 && !n._verticalStacked) {
+      const bb = getBoundingBox(n.children)
+      const width = bb.maxX - bb.minX
+      if (width > bestWidth) {
+        best = n
+        bestWidth = width
+      }
     }
   }
   return best

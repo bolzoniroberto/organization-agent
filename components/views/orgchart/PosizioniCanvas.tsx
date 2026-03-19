@@ -28,8 +28,8 @@ import RecordDrawer from '@/components/shared/RecordDrawer'
 import { usePersistedState } from '@/lib/use-persisted-state'
 
 const NODE_TYPES = { orgNode: OrgNode, orgGroup: OrgGroupNode }
-const TARGET_RATIO = 1.8   // larghezza/altezza target — forza stacking verticale aggressivo
-const MAX_ITER = 5          // iterazioni massime per bilanciamento aspect ratio
+const TARGET_RATIO = 1.4   // larghezza/altezza target — forza stacking verticale aggressivo
+const MAX_ITER = 20         // iterazioni massime per bilanciamento aspect ratio
 const SEDE_NODE_W = 240
 const SEDE_NODE_H = 100
 const SEDE_PAD = 20
@@ -521,7 +521,7 @@ export default function PosizioniCanvas() {
     let iter = 0
     let bbox = getBoundingBox(f)
     let ratio = (bbox.maxX - bbox.minX) / Math.max(1, bbox.maxY - bbox.minY)
-    while (ratio > TARGET_RATIO && iter < MAX_ITER && metrics.totalNodes > 20) {
+    while (ratio > TARGET_RATIO && iter < MAX_ITER && metrics.totalNodes > 10) {
       const target = findWidestHorizontalSubtree(f)
       if (!target) break
       target._verticalStacked = true
