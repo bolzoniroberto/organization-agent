@@ -5,13 +5,12 @@ import fs from 'fs'
 
 let initialized = false
 
-declare global { var __autoBackupStarted: boolean | undefined }
+declare global { var __autoBackupTimer: ReturnType<typeof setTimeout> | undefined }
 
 export function db(): Database.Database {
   if (!initialized) {
     initDb()
     initialized = true
-    startAutoBackup()
   }
   return getDb()
 }
@@ -23,11 +22,10 @@ export function closeDb(): void {
   }
 }
 
-function startAutoBackup() {
-  if (globalThis.__autoBackupStarted) return
-  globalThis.__autoBackupStarted = true
-  const INTERVAL_MS = 2 * 60 * 60 * 1000 // 2 ore
-  setInterval(() => {
+function scheduleAutoBackup() {
+  if (globalThis.__autoBackupTimer) clearTimeout(globalThis.__autoBackupTimer)
+  globalThis.__autoBackupTimer = setTimeout(() => {
+    globalThis.__autoBackupTimer = undefined
     try {
       const dbPath = process.env.DATABASE_PATH ?? path.join(process.cwd(), 'hrplatform.db')
       const backupDir = path.join(path.dirname(dbPath), 'backups')
@@ -35,7 +33,6 @@ function startAutoBackup() {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const backupPath = path.join(backupDir, `hrplatform_${timestamp}.db`)
       getDb().backup(backupPath).then(() => {
-        // Mantieni gli ultimi 30 backup
         const files = fs.readdirSync(backupDir)
           .filter(f => f.startsWith('hrplatform_') && f.endsWith('.db'))
           .map(f => ({ name: f, mtime: fs.statSync(path.join(backupDir, f)).mtimeMs }))
@@ -45,7 +42,7 @@ function startAutoBackup() {
     } catch (e) {
       console.error('[auto-backup]', e)
     }
-  }, INTERVAL_MS)
+  }, 30_000) // 30s dopo l'ultima modifica
 }
 
 export function writeChangeLog(
@@ -61,4 +58,5 @@ export function writeChangeLog(
     INSERT INTO change_log (entity_type, entity_id, entity_label, action, field_name, old_value, new_value)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(entityType, entityId, entityLabel, action, fieldName, oldValue, newValue)
+  scheduleAutoBackup()
 }

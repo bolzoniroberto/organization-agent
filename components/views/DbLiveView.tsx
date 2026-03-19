@@ -220,7 +220,7 @@ export default function DbLiveView() {
             <div className="space-y-1">
               <div className="flex items-center gap-2 mb-2">
                 <Clock className="w-3 h-3 text-slate-500" />
-                <span className="text-xs text-slate-500">Auto-backup ogni 2 ore · {backups.length} versioni salvate</span>
+                <span className="text-xs text-slate-500">Auto-backup dopo ogni modifica · {backups.length} versioni salvate</span>
               </div>
               {backups.map(b => (
                 <div key={b.name} className={`flex items-center gap-2 px-2 py-1.5 rounded border text-xs ${isPreRestore(b.name) ? 'bg-amber-950/30 border-amber-800/50' : 'bg-slate-800 border-slate-700'}`}>
