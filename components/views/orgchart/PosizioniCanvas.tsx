@@ -667,7 +667,7 @@ export default function PosizioniCanvas() {
     const rootIds = new Set(filtered.filter(n => !n.reports_to || !allIds.has(n.reports_to)).map(n => n.id))
     drillTo(null, () => {
       setCollapsedSet(new Set(filtered.filter(n => !rootIds.has(n.id)).map(n => n.id)))
-      setTimeout(() => fitView({ padding: 0.2, duration: 400, minZoom: 0.7 }), 50)
+      setTimeout(() => fitView({ padding: 0.2, duration: 400, minZoom: 0.1 }), 50)
     })
   }, [filtered, drillTo, fitView])
 
@@ -971,12 +971,12 @@ export default function PosizioniCanvas() {
   }, [nodes, dragTargetId, dragResetKey])
 
   useEffect(() => {
-    if (nodes.length > 0) setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.7 }), 100)
+    if (nodes.length > 0) setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.1 }), 100)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayNodi, viewMode, drillRootId])
 
   useEffect(() => {
-    setTimeout(() => fitView({ padding: 0.15, duration: 300, minZoom: 0.7 }), 50)
+    setTimeout(() => fitView({ padding: 0.15, duration: 300, minZoom: 0.1 }), 50)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawerOpen])
 
@@ -1002,14 +1002,14 @@ export default function PosizioniCanvas() {
   const handleFocusExpand = useCallback((nodeId: string) => {
     drillInto(nodeId, 'expand', () => {
       setCollapsedSet(new Set())
-      setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.7 }), 50)
+      setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.1 }), 50)
     })
   }, [drillInto, fitView])
 
   const handleDrillIn = useCallback((nodeId: string) => {
     drillInto(nodeId, 'navigate', () => {
       setCollapsedSet(new Set())
-      setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.7 }), 50)
+      setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.1 }), 50)
     })
   }, [drillInto, fitView])
 
@@ -1196,7 +1196,7 @@ export default function PosizioniCanvas() {
               <React.Fragment key={idx}>
                 {idx > 0 && <span className="text-slate-600 mx-0.5">/</span>}
                 <button
-                  onClick={() => drillTo(item.id, () => { setCollapsedSet(new Set()); setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.7 }), 50) })}
+                  onClick={() => drillTo(item.id, () => { setCollapsedSet(new Set()); setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.1 }), 50) })}
                   className={[
                     'px-1.5 py-0.5 rounded transition-colors max-w-[120px] truncate',
                     idx === drillBreadcrumb.length - 1
