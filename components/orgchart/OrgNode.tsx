@@ -209,13 +209,7 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
           </div>
         )}
 
-        <div className="px-3 py-2 flex flex-col gap-0.5 items-center">
-          {tipo && (
-            <div className="flex items-center gap-1 mb-0.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${tipoColor.dot} flex-shrink-0`} />
-              <span className="text-slate-300 uppercase tracking-wide" style={{ fontSize: 9 }}>{tipo}</span>
-            </div>
-          )}
+        <div className="px-3 py-1.5 flex flex-col gap-0.5 items-center">
           <div className="font-bold text-white leading-snug overflow-hidden text-center w-full"
             style={{ fontSize: 14, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
             {label}
@@ -282,12 +276,6 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
       )}
 
       <div className="px-3 py-1.5 flex flex-col gap-0.5 items-center">
-        {tipo && (
-          <div className="flex items-center gap-1 mb-0.5">
-            <span className={`w-1.5 h-1.5 rounded-full ${tipoColor.dot} flex-shrink-0`} />
-            <span className="text-slate-300 uppercase tracking-wide" style={{ fontSize: 9 }}>{tipo}</span>
-          </div>
-        )}
         <div className="font-bold text-white leading-snug overflow-hidden text-center w-full"
           style={{ fontSize: 14, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
           {label}
@@ -295,8 +283,7 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
         {sublabel && (
           <div className="text-slate-200 truncate text-center w-full" style={{ fontSize: 12 }}>{sublabel}</div>
         )}
-        <div className="flex items-center justify-between mt-1 w-full">
-          <span className="text-slate-400 text-xs tabular-nums">{childrenCount} rami</span>
+        <div className="flex items-center justify-end mt-1 w-full">
           <button
             onClick={(e) => { e.stopPropagation(); onOpenDrawer() }}
             className="text-slate-500 hover:text-slate-200 transition-colors"
