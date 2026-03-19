@@ -39,6 +39,23 @@ export async function POST() {
   }
 }
 
+export async function DELETE(req: Request) {
+  try {
+    const { filename } = await req.json()
+    if (!filename || !/^hrplatform_[\w\-.]+\.db$/.test(filename)) {
+      return NextResponse.json({ success: false, error: 'filename non valido' }, { status: 400 })
+    }
+    const dbPath = process.env.DATABASE_PATH ?? path.join(process.cwd(), 'hrplatform.db')
+    const backupDir = path.join(path.dirname(dbPath), 'backups')
+    const filePath = path.join(backupDir, filename)
+    if (!fs.existsSync(filePath)) return NextResponse.json({ success: false, error: 'File non trovato' }, { status: 404 })
+    fs.unlinkSync(filePath)
+    return NextResponse.json({ success: true })
+  } catch (e) {
+    return NextResponse.json({ success: false, error: String(e) }, { status: 500 })
+  }
+}
+
 export async function GET() {
   try {
     const dbPath = process.env.DATABASE_PATH ?? path.join(process.cwd(), 'hrplatform.db')

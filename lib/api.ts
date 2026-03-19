@@ -236,6 +236,12 @@ export const api = {
 
     listBackups: (): Promise<{ backups: { name: string; sizeKb: number; createdAt: string }[] }> =>
       fetch(u('/api/db/backup')).then(r => json(r)),
+
+    restore: (filename: string): Promise<{ success: boolean; safetyBackup?: string; error?: string }> =>
+      fetch(u('/api/db/restore'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename }) }).then(r => json(r)),
+
+    deleteBackup: (filename: string): Promise<{ success: boolean; error?: string }> =>
+      fetch(u('/api/db/backup'), { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename }) }).then(r => json(r)),
   },
 
   dataCleaning: {

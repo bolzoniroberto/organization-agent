@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import { useHRStore } from '@/store/useHRStore'
 import { api } from '@/lib/api'
-import { Search, RefreshCw, DatabaseBackup } from 'lucide-react'
+import { Search, RefreshCw, DatabaseBackup, RotateCcw, Trash2, Clock, CheckCircle, AlertTriangle } from 'lucide-react'
 
 function Panel({
   title, count, color, search, onSearch, children
@@ -72,6 +72,10 @@ export default function DbLiveView() {
   const [backing, setBacking] = useState(false)
   const [backups, setBackups] = useState<{ name: string; sizeKb: number; createdAt: string }[]>([])
   const [showBackups, setShowBackups] = useState(false)
+  const [confirmRestore, setConfirmRestore] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [restoreStatus, setRestoreStatus] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [restoring, setRestoring] = useState(false)
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -100,6 +104,45 @@ export default function DbLiveView() {
       setBacking(false)
     }
   }
+
+  const handleRestore = async (filename: string) => {
+    setConfirmRestore(null)
+    setRestoring(true)
+    setRestoreStatus(null)
+    try {
+      const res = await api.db.restore(filename)
+      if (res.success) {
+        setRestoreStatus({ ok: true, msg: `Ripristinato. Safety backup: ${res.safetyBackup}. Ricarica la pagina per vedere i dati aggiornati.` })
+        await loadBackups()
+      } else {
+        setRestoreStatus({ ok: false, msg: res.error ?? 'Errore ripristino' })
+      }
+    } catch (e) {
+      setRestoreStatus({ ok: false, msg: String(e) })
+    } finally {
+      setRestoring(false)
+    }
+  }
+
+  const handleDeleteBackup = async (filename: string) => {
+    setConfirmDelete(null)
+    await api.db.deleteBackup(filename)
+    await loadBackups()
+  }
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso)
+    return d.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const formatBackupName = (name: string) => {
+    // hrplatform_2026-03-19T10-30-00.db → data leggibile
+    const m = name.match(/hrplatform_(?:prerestore_)?(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})/)
+    if (m) return `${m[1]} ${m[2]}:${m[3]}`
+    return name.replace('hrplatform_', '').replace('.db', '')
+  }
+
+  const isPreRestore = (name: string) => name.includes('prerestore')
 
   const fNodi = useMemo(() => {
     const q = s1.toLowerCase()
@@ -145,7 +188,7 @@ export default function DbLiveView() {
           title="Crea backup ora"
         >
           {backing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <DatabaseBackup className="w-3 h-3" />}
-          {backing ? 'Backup…' : 'Backup ora'}
+          {backing ? 'Salvataggio…' : 'Salva versione'}
         </button>
 
         <button
@@ -158,21 +201,82 @@ export default function DbLiveView() {
         </button>
       </div>
 
+      {restoreStatus && (
+        <div className={`flex-none px-4 py-2 border-b flex items-start gap-2 ${restoreStatus.ok ? 'bg-green-950/40 border-green-800' : 'bg-red-950/40 border-red-800'}`}>
+          {restoreStatus.ok ? <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" /> : <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />}
+          <span className="text-xs text-slate-200">{restoreStatus.msg}</span>
+          {restoreStatus.ok && (
+            <button onClick={() => window.location.reload()} className="ml-2 text-xs text-green-300 underline hover:text-green-200 flex-shrink-0">Ricarica ora</button>
+          )}
+          <button onClick={() => setRestoreStatus(null)} className="ml-auto text-slate-500 hover:text-slate-300 text-xs">✕</button>
+        </div>
+      )}
+
       {showBackups && (
-        <div className="flex-none px-4 py-2 bg-slate-900 border-b border-slate-700">
-          {backups.length === 0
-            ? <p className="text-xs text-slate-500">Nessun backup disponibile. Clicca "Backup ora" per creare il primo.</p>
-            : (
-              <div className="flex flex-wrap gap-2">
-                {backups.map(b => (
-                  <div key={b.name} className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 font-mono text-slate-400">
-                    {b.name.replace('hrplatform_', '').replace('.db', '')}
-                    <span className="text-slate-600 ml-1">{b.sizeKb}KB</span>
-                  </div>
-                ))}
+        <div className="flex-none px-4 py-3 bg-slate-900 border-b border-slate-700 max-h-64 overflow-y-auto">
+          {backups.length === 0 ? (
+            <p className="text-xs text-slate-500">Nessun backup disponibile. Clicca "Salva versione" per creare il primo.</p>
+          ) : (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="w-3 h-3 text-slate-500" />
+                <span className="text-xs text-slate-500">Auto-backup ogni 2 ore · {backups.length} versioni salvate</span>
               </div>
-            )
-          }
+              {backups.map(b => (
+                <div key={b.name} className={`flex items-center gap-2 px-2 py-1.5 rounded border text-xs ${isPreRestore(b.name) ? 'bg-amber-950/30 border-amber-800/50' : 'bg-slate-800 border-slate-700'}`}>
+                  <span className={`font-medium ${isPreRestore(b.name) ? 'text-amber-300' : 'text-slate-200'}`}>
+                    {isPreRestore(b.name) && <span className="text-amber-500 mr-1">[pre-restore]</span>}
+                    {formatBackupName(b.name)}
+                  </span>
+                  <span className="text-slate-500">{b.sizeKb} KB</span>
+                  <span className="text-slate-600 ml-auto">{formatDate(b.createdAt)}</span>
+                  <button
+                    onClick={() => setConfirmRestore(b.name)}
+                    disabled={restoring}
+                    className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-indigo-300 hover:text-indigo-200 border border-indigo-800 hover:border-indigo-600 rounded transition-colors disabled:opacity-40"
+                    title="Ripristina questa versione"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Ripristina
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(b.name)}
+                    className="p-0.5 text-slate-600 hover:text-red-400 transition-colors"
+                    title="Elimina backup"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {confirmRestore && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setConfirmRestore(null)}>
+          <div className="bg-slate-800 border border-indigo-700 rounded-lg p-5 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-indigo-300 mb-2">Ripristina versione</h3>
+            <p className="text-sm text-slate-300 mb-1">Vuoi ripristinare:</p>
+            <p className="text-sm font-mono text-slate-100 mb-3">{formatBackupName(confirmRestore)}</p>
+            <p className="text-xs text-slate-500 mb-4">Il DB attuale verrà salvato automaticamente come backup pre-restore prima di procedere.</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmRestore(null)} className="px-3 py-1.5 text-sm text-slate-400 border border-slate-600 rounded-md hover:text-slate-200">Annulla</button>
+              <button onClick={() => handleRestore(confirmRestore)} className="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-md">Ripristina</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setConfirmDelete(null)}>
+          <div className="bg-slate-800 border border-red-700 rounded-lg p-5 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-red-300 mb-2">Elimina backup</h3>
+            <p className="text-sm text-slate-300 mb-3">Eliminare <span className="font-mono text-slate-100">{formatBackupName(confirmDelete)}</span>? L'operazione è irreversibile.</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmDelete(null)} className="px-3 py-1.5 text-sm text-slate-400 border border-slate-600 rounded-md hover:text-slate-200">Annulla</button>
+              <button onClick={() => handleDeleteBackup(confirmDelete)} className="px-3 py-1.5 text-sm bg-red-700 hover:bg-red-600 text-white rounded-md">Elimina</button>
+            </div>
+          </div>
         </div>
       )}
 
