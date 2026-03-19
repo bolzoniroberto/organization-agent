@@ -1,7 +1,7 @@
 // Pure layout functions — no React imports
 
-const H_GAP = 260
-const V_GAP = 130
+const H_GAP = 290
+const V_GAP = 150
 const GRID_COLS = 8
 
 export interface TreeNode<T> {

@@ -480,7 +480,8 @@ export default function PosizioniCanvas() {
     const metrics = analyzeTree(root)
 
     // ── Dynamic vGap: prevent overlap when nodes are taller than default ────────
-    let vGap = 130
+    const activeFields = nodeFields.filter(Boolean).length
+    let vGap = 150 + (activeFields > 1 ? (activeFields - 1) * 15 : 0)
     if (leafListMode || groupByName) {
       const childrenOfId = new Map<string, string[]>()
       groupedNodiResult.forEach(n => {
@@ -505,7 +506,7 @@ export default function PosizioniCanvas() {
           maxNodeHeight = Math.max(maxNodeHeight, 80 + listH)
         })
       }
-      vGap = Math.max(130, maxNodeHeight + 20)
+      vGap = Math.max(vGap, maxNodeHeight + 20)
     }
 
     const cfg: LayoutConfig = {
@@ -531,7 +532,7 @@ export default function PosizioniCanvas() {
       iter++
     }
     return flattenTree(f)
-  }, [groupedNodiResult, collapsedSet, leafListMode, groupByName, groupedPersonsMap])
+  }, [groupedNodiResult, collapsedSet, leafListMode, groupByName, groupedPersonsMap, nodeFields])
 
   const compactMode = useMemo(() => {
     const n = visibleTree.length
