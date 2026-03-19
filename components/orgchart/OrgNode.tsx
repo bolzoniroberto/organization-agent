@@ -1,7 +1,6 @@
 'use client'
 import React, { memo } from 'react'
 import { Handle, Position, useStore } from '@xyflow/react'
-import { ChevronRight } from 'lucide-react'
 
 export interface OrgNodeData {
   id: string
@@ -283,15 +282,6 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
         {sublabel && (
           <div className="text-slate-200 truncate text-center w-full" style={{ fontSize: 12 }}>{sublabel}</div>
         )}
-        <div className="flex items-center justify-end mt-1 w-full">
-          <button
-            onClick={(e) => { e.stopPropagation(); onOpenDrawer() }}
-            className="text-slate-500 hover:text-slate-200 transition-colors"
-            title="Apri dettaglio"
-          >
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
       </div>
 
       {lod === 'micro' && extraDetail && (
