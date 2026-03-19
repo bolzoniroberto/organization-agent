@@ -154,9 +154,60 @@ export function layoutTree<T>(
 
       x = gridStartX + gridWidth
     } else {
-      const subtreeStart = x
-      x = layoutTree(node.children, x, config)
-      node.x = (subtreeStart + x - hg) / 2
+      // Check if we should use staggered multi-row layout
+      const hasSubtreeChildren = node.children.some(c => c.children.length > 0)
+      const MAX_PER_ROW = 4
+
+      if (hasSubtreeChildren && node.children.length > MAX_PER_ROW) {
+        // Staggered layout: split children into rows, offset vertically
+        const rowSize = Math.ceil(node.children.length / Math.ceil(node.children.length / MAX_PER_ROW))
+        const rows: TreeNode<T>[][] = []
+        for (let i = 0; i < node.children.length; i += rowSize) {
+          rows.push(node.children.slice(i, i + rowSize))
+        }
+
+        let maxRight = x
+        let yOffset = 0
+
+        for (const row of rows) {
+          let rowX = x
+          let maxDepthInRow = 0
+
+          for (const child of row) {
+            child.y = (node.depth + 1) * vg + yOffset
+            child.x = rowX
+
+            const childRight = layoutTree(child.children, child.x, config)
+            // Adjust all descendants by yOffset
+            const yDelta = yOffset
+            if (yDelta !== 0) {
+              for (const desc of flattenTree(child.children)) {
+                desc.y += yDelta
+              }
+            }
+
+            // Center child over its subtree, or place at rowX if leaf
+            if (child.children.length > 0) {
+              const childBB = getBoundingBox(child.children)
+              child.x = (child.x + childBB.maxX) / 2
+            }
+
+            maxDepthInRow = Math.max(maxDepthInRow, getSubtreeDepth(child))
+            rowX = Math.max(rowX + hg, childRight)
+          }
+
+          maxRight = Math.max(maxRight, rowX)
+          yOffset += (maxDepthInRow + 1) * vg
+        }
+
+        node.x = (x + maxRight - hg) / 2
+        x = maxRight
+      } else {
+        // Standard: all children on same row
+        const subtreeStart = x
+        x = layoutTree(node.children, x, config)
+        node.x = (subtreeStart + x - hg) / 2
+      }
     }
   }
 
