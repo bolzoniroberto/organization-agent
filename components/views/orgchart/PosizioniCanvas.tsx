@@ -677,7 +677,8 @@ export default function PosizioniCanvas() {
       if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
-  }, [])
+    setTimeout(() => fitView({ padding: 0.15, duration: 300, minZoom: 0.1 }), 150)
+  }, [fitView])
 
   const handleDropPersonOnNode = useCallback((nodeId: string, cf: string) => {
     const nodo = filtered.find(n => n.id === nodeId)
