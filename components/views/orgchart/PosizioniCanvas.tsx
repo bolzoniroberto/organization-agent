@@ -36,7 +36,7 @@ const SEDE_PAD = 20
 const SEDE_GAP = 40
 const SEDE_INNER_COLS = 4
 
-type ColorMode = 'none' | 'sede' | 'funzione' | 'tipo_nodo'
+type ColorMode = string  // 'none' = nessuno, altrimenti = field key (es. 'sede', 'p:societa', ecc.)
 
 const ALL_FIELD_OPTIONS: { group: string; fields: { value: string; label: string }[] }[] = [
   { group: 'Nodo', fields: [
@@ -135,19 +135,15 @@ function computeSemanticStatus(nodi: NodoOrganigramma[]): Map<string, 'active' |
   return out
 }
 
-function buildColorMap(nodi: NodoOrganigramma[], mode: ColorMode): Map<string, ColorScheme> {
+function buildColorMap(nodi: NodoOrganigramma[], mode: string, personaMap: Map<string, Persona>): Map<string, ColorScheme> {
   if (mode === 'none') return new Map()
-  const getVal = (n: NodoOrganigramma): string => {
-    if (mode === 'sede') return n.sede ?? ''
-    if (mode === 'funzione') return n.funzione ?? ''
-    return n.tipo_nodo ?? ''
-  }
-  const unique = [...new Set(nodi.map(getVal).filter(Boolean))]
+  const vals = nodi.map(n => resolveFieldWithPersona(n, mode, personaMap) ?? '').filter(Boolean)
+  const unique = [...new Set(vals)]
   return new Map(unique.map((val, i) => [
     val,
     {
-      border: `hsl(${Math.round((i / unique.length) * 300)}, 55%, 55%)`,
-      bg: `hsl(${Math.round((i / unique.length) * 300)}, 55%, 97%)`
+      border: `hsl(${Math.round((i / Math.max(unique.length, 1)) * 300)}, 60%, 55%)`,
+      bg: `hsl(${Math.round((i / Math.max(unique.length, 1)) * 300)}, 60%, 20%)`
     }
   ]))
 }
@@ -156,9 +152,10 @@ function buildColorMap(nodi: NodoOrganigramma[], mode: ColorMode): Map<string, C
 function buildSedeLayout(
   nodi: NodoOrganigramma[],
   colorMap: Map<string, ColorScheme>,
-  colorMode: ColorMode,
+  colorMode: string,
   activePath: Set<string> | null,
-  onOpenDrawer: (n: NodoOrganigramma) => void
+  onOpenDrawer: (n: NodoOrganigramma) => void,
+  personaMap: Map<string, Persona>
 ): { nodes: Node[]; edges: Edge[] } {
   const bySede = new Map<string, NodoOrganigramma[]>()
   nodi.forEach(n => {
@@ -195,12 +192,7 @@ function buildSedeLayout(
     })
 
     items.forEach((n, i) => {
-      const getVal = (): string => {
-        if (colorMode === 'sede') return n.sede ?? ''
-        if (colorMode === 'funzione') return n.funzione ?? ''
-        return n.tipo_nodo ?? ''
-      }
-      const colorScheme = colorMode !== 'none' ? colorMap.get(getVal()) : undefined
+      const colorScheme = colorMode !== 'none' ? colorMap.get(resolveFieldWithPersona(n, colorMode, personaMap) ?? '') : undefined
       const focusStyle: React.CSSProperties = activePath
         ? { opacity: activePath.has(n.id) ? 1 : 0.2, transition: 'opacity 150ms' }
         : {}
@@ -263,7 +255,7 @@ export default function PosizioniCanvas() {
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<NodoOrganigramma[]>([])
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null)
-  const [colorMode, setColorMode] = useState<ColorMode>('none')
+  const [colorMode, setColorMode] = usePersistedState<ColorMode>('orgchart:posizioni:colorMode', 'none')
   const [nodeFields, setNodeFields] = usePersistedState<[string, string, string]>('orgchart:posizioni:nodeFields', ['nome_uo', 'cf_persona', ''])
   const [viewMode, setViewMode] = useState<'tree' | 'sede'>('tree')
   const [visualMode, setVisualMode] = useState<'flow' | 'treemap'>('flow')
@@ -423,6 +415,27 @@ export default function PosizioniCanvas() {
     return map
   }, [filtered])
 
+  const descendantCountMap = useMemo(() => {
+    const childrenMap = new Map<string, string[]>()
+    filtered.forEach(n => {
+      if (n.reports_to) {
+        if (!childrenMap.has(n.reports_to)) childrenMap.set(n.reports_to, [])
+        childrenMap.get(n.reports_to)!.push(n.id)
+      }
+    })
+    const cache = new Map<string, number>()
+    function count(id: string): number {
+      if (cache.has(id)) return cache.get(id)!
+      const children = childrenMap.get(id) ?? []
+      const result = children.reduce((sum, c) => sum + 1 + count(c), 0)
+      cache.set(id, result)
+      return result
+    }
+    const map = new Map<string, number>()
+    filtered.forEach(n => map.set(n.id, count(n.id)))
+    return map
+  }, [filtered])
+
   // ── Raggruppamento nodi con stesso nome UO (solo foglie) ──────────────────────
   const [groupedNodiResult, groupedPersonsMap] = useMemo((): [NodoOrganigramma[], Map<string, NodoOrganigramma[]>] => {
     if (!groupByName) return [drilledNodi, new Map()]
@@ -527,7 +540,7 @@ export default function PosizioniCanvas() {
     return compactModeRef.current
   }, [visibleTree.length, zoom])
 
-  const colorMap = useMemo(() => buildColorMap(drilledNodi, colorMode), [drilledNodi, colorMode])
+  const colorMap = useMemo(() => buildColorMap(drilledNodi, colorMode, personaMap), [drilledNodi, colorMode, personaMap])
   const semanticStatusMap = useMemo(() => computeSemanticStatus(drilledNodi), [drilledNodi])
 
   const focusPath = useMemo(() => {
@@ -774,7 +787,7 @@ export default function PosizioniCanvas() {
 
   const { nodes, edges } = useMemo(() => {
     if (viewMode === 'sede') {
-      return buildSedeLayout(displayNodi, colorMap, colorMode, activePath, openDrawer)
+      return buildSedeLayout(displayNodi, colorMap, colorMode, activePath, openDrawer, personaMap)
     }
 
     const prevIds = prevVisibleIdsRef.current
@@ -811,12 +824,7 @@ export default function PosizioniCanvas() {
         const totalChildren = childCountMap.get(tn.id) ?? 0
         const isCollapsed = collapsedSet.has(tn.id)
 
-        const getVal = (): string => {
-          if (colorMode === 'sede') return tn.item.sede ?? ''
-          if (colorMode === 'funzione') return tn.item.funzione ?? ''
-          return tn.item.tipo_nodo ?? ''
-        }
-        const colorScheme = colorMode !== 'none' ? colorMap.get(getVal()) : undefined
+        const colorScheme = colorMode !== 'none' ? colorMap.get(resolveFieldWithPersona(tn.item, colorMode, personaMap) ?? '') : undefined
         const focusStyle: React.CSSProperties = activePath
           ? { opacity: activePath.has(tn.id) ? 1 : 0.2, transition: 'opacity 100ms' }
           : { transition: 'opacity 150ms' }
@@ -871,6 +879,8 @@ export default function PosizioniCanvas() {
             semanticStatus: semanticStatusMap.get(tn.id),
             alertDots: isPinned(tn.id) ? [{ color: 'yellow', title: 'Vista fissata' }] : undefined,
             entranceDelay, compact: compactMode,
+            directReports: totalChildren,
+            totalReports: descendantCountMap.get(tn.id) ?? 0,
             isAncestor: drillAncestorSet.has(tn.id),
             onExpand: () => toggleCollapse(tn.id),
             onExpandOverflow: () => {},
@@ -933,7 +943,7 @@ export default function PosizioniCanvas() {
 
     return { nodes: treeNodes as Node[], edges: treeEdges }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, visibleTree, collapsedSet, childCountMap, highlightedNode,
+  }, [viewMode, visibleTree, collapsedSet, childCountMap, descendantCountMap, highlightedNode,
       toggleCollapse, colorMode, colorMap, semanticStatusMap, activePath, compactMode,
       openDrawer, nodeFields, personaMap, isPinned, leafListMode, groupedPersonsMap, handleDropPersonOnNode,
       drillAncestorSet, drillRootId, filtered])
@@ -1216,6 +1226,23 @@ export default function PosizioniCanvas() {
             {dragEditMode ? '✎ Modifica attiva' : '✎ Modifica riporti'}
           </button>
         )}
+
+        {/* Colora per */}
+        <select
+          value={colorMode}
+          onChange={e => setColorMode(e.target.value)}
+          className="text-xs bg-slate-800 border border-slate-600 rounded-md px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 max-w-[140px]"
+          title="Colora nodi per campo"
+        >
+          <option value="none">Colora per…</option>
+          {ALL_FIELD_OPTIONS.map(group => (
+            <optgroup key={group.group} label={group.group}>
+              {group.fields.filter(f => f.value !== '').map(f => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
 
         {/* Vista stampa */}
         <button

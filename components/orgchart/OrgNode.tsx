@@ -20,6 +20,8 @@ export interface OrgNodeData {
   alertDots?: { color: string; title: string }[]
   entranceDelay?: number
   compact?: boolean
+  directReports?: number
+  totalReports?: number
   /** Ancestor chip: renders as a slim breadcrumb chip in the drill ancestry chain */
   isAncestor?: boolean
   onExpand: () => void
@@ -57,7 +59,7 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
   const {
     label, sublabel, extraDetail, tipo, collapsed, hasChildren, childrenCount, depth,
     isOverflowed, hiddenCount, colorScheme, semanticStatus, alertDots, entranceDelay, compact,
-    isAncestor,
+    isAncestor, directReports, totalReports,
     onExpand, onExpandOverflow, onOpenDrawer, onDropPerson, leafList, groupedPersons
   } = data
 
@@ -148,13 +150,13 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
   if (compact) {
     return (
       <div className={containerClasses}
-        style={{ width: 180, height: 48, ...colorStyles, ...entranceStyle }}
+        style={{ width: 180, height: 40, ...colorStyles, ...entranceStyle }}
         onDoubleClick={(e) => { e.stopPropagation(); onOpenDrawer() }}
         {...dropHandlers}
       >
         <Handle type="target" position={Position.Top} className="!bg-slate-500 !w-1.5 !h-1.5" />
-        <div className="px-2 py-1 flex items-center gap-1.5 h-full">
-          <span className="font-semibold text-slate-100 overflow-hidden flex-1"
+        <div className="px-2 py-1 flex items-center justify-center gap-1.5 h-full">
+          <span className="font-semibold text-slate-100 overflow-hidden flex-1 text-center"
             style={{ fontSize: 11, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
             {label}
           </span>
@@ -175,8 +177,8 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
         {...dropHandlers}
       >
         <Handle type="target" position={Position.Top} className="!bg-slate-500 !w-2 !h-2" />
-        <div className="px-3 py-2 flex items-center gap-2 h-full">
-          <span className="font-semibold text-white overflow-hidden flex-1"
+        <div className="px-3 py-2 flex items-center justify-center gap-2 h-full">
+          <span className="font-semibold text-white overflow-hidden flex-1 text-center"
             style={{ fontSize: 12, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
             {label}
           </span>
@@ -193,7 +195,7 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
     const hasList = (leafList && leafList.length > 0) || (groupedPersons && groupedPersons.length > 0)
     return (
       <div className={containerClasses}
-        style={{ width: NODE_W, minHeight: 64, ...colorStyles, ...entranceStyle }}
+        style={{ width: NODE_W, minHeight: 56, ...colorStyles, ...entranceStyle }}
         onDoubleClick={(e) => { e.stopPropagation(); onOpenDrawer() }}
         {...dropHandlers}
       >
@@ -207,19 +209,19 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
           </div>
         )}
 
-        <div className="px-3 py-2 flex flex-col gap-0.5">
+        <div className="px-3 py-2 flex flex-col gap-0.5 items-center">
           {tipo && (
             <div className="flex items-center gap-1 mb-0.5">
               <span className={`w-1.5 h-1.5 rounded-full ${tipoColor.dot} flex-shrink-0`} />
               <span className="text-slate-300 uppercase tracking-wide" style={{ fontSize: 9 }}>{tipo}</span>
             </div>
           )}
-          <div className="font-bold text-white leading-snug overflow-hidden"
+          <div className="font-bold text-white leading-snug overflow-hidden text-center w-full"
             style={{ fontSize: 14, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
             {label}
           </div>
           {sublabel && (
-            <div className="text-slate-200 truncate" style={{ fontSize: 11 }}>{sublabel}</div>
+            <div className="text-slate-200 truncate text-center w-full" style={{ fontSize: 11 }}>{sublabel}</div>
           )}
         </div>
 
@@ -265,7 +267,7 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
   // ── Standard / Micro (nodo con figli) ────────────────────────────────────────
   return (
     <div className={containerClasses}
-      style={{ width: NODE_W, minHeight: 80, ...colorStyles, ...entranceStyle }}
+      style={{ width: NODE_W, minHeight: 64, ...colorStyles, ...entranceStyle }}
       onDoubleClick={(e) => { e.stopPropagation(); onOpenDrawer() }}
       {...dropHandlers}
     >
@@ -279,21 +281,21 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
         </div>
       )}
 
-      <div className="px-3 py-2 flex flex-col gap-0.5">
+      <div className="px-3 py-1.5 flex flex-col gap-0.5 items-center">
         {tipo && (
           <div className="flex items-center gap-1 mb-0.5">
             <span className={`w-1.5 h-1.5 rounded-full ${tipoColor.dot} flex-shrink-0`} />
             <span className="text-slate-300 uppercase tracking-wide" style={{ fontSize: 9 }}>{tipo}</span>
           </div>
         )}
-        <div className="font-bold text-white leading-snug overflow-hidden"
+        <div className="font-bold text-white leading-snug overflow-hidden text-center w-full"
           style={{ fontSize: 14, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
           {label}
         </div>
         {sublabel && (
-          <div className="text-slate-200 truncate" style={{ fontSize: 12 }}>{sublabel}</div>
+          <div className="text-slate-200 truncate text-center w-full" style={{ fontSize: 12 }}>{sublabel}</div>
         )}
-        <div className="flex items-center justify-between mt-1">
+        <div className="flex items-center justify-between mt-1 w-full">
           <span className="text-slate-400 text-xs tabular-nums">{childrenCount} rami</span>
           <button
             onClick={(e) => { e.stopPropagation(); onOpenDrawer() }}
@@ -308,6 +310,19 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
       {lod === 'micro' && extraDetail && (
         <div className="px-3 pb-2 pt-1 border-t border-slate-700">
           <div className="text-slate-400 truncate" style={{ fontSize: 10 }}>{extraDetail}</div>
+        </div>
+      )}
+
+      {directReports !== undefined && (
+        <div className="flex items-center justify-between px-3 pb-1 border-t border-slate-700/50 mt-1">
+          <span className="text-slate-500" style={{fontSize:9}}>
+            ↓ {directReports} diretti
+          </span>
+          {totalReports !== undefined && totalReports > directReports && (
+            <span className="text-slate-600" style={{fontSize:9}}>
+              ⊹ {totalReports} totali
+            </span>
+          )}
         </div>
       )}
 
