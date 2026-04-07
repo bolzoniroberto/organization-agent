@@ -242,10 +242,82 @@ function createSchema(db: Database.Database): void {
     'ALTER TABLE strutture_tns ADD COLUMN deleted_at DATETIME',
     // index
     'CREATE INDEX IF NOT EXISTS idx_persone_codice_tns ON persone(codice_tns)',
+    // Payroll marzo 2026 — nuovi campi
+    'ALTER TABLE persone ADD COLUMN data_assunzione_gruppo TEXT',
+    'ALTER TABLE persone ADD COLUMN codice_posizione TEXT',
+    'ALTER TABLE persone ADD COLUMN desc_posizione TEXT',
+    'ALTER TABLE persone ADD COLUMN tipo_contratto_termine TEXT',
+    'ALTER TABLE persone ADD COLUMN data_scadenza_ct TEXT',
+    'ALTER TABLE persone ADD COLUMN codice_parttime TEXT',
+    'ALTER TABLE persone ADD COLUMN data_decorrenza_parttime TEXT',
+    'ALTER TABLE persone ADD COLUMN data_scadenza_parttime TEXT',
+    'ALTER TABLE persone ADD COLUMN categoria_protetta TEXT',
+    'ALTER TABLE persone ADD COLUMN azienda_provenienza TEXT',
+    'ALTER TABLE persone ADD COLUMN area_livello3 TEXT',
+    'ALTER TABLE persone ADD COLUMN tipo_orario TEXT',
+    'ALTER TABLE persone ADD COLUMN sw_tipologia TEXT',
+    'ALTER TABLE persone ADD COLUMN sw_scadenza TEXT',
+    'ALTER TABLE persone ADD COLUMN cittadinanza TEXT',
+    'ALTER TABLE persone ADD COLUMN desc_contratto TEXT',
+    'ALTER TABLE persone ADD COLUMN codice_sede TEXT',
+    // Masterdata 20260407 — nuovi campi persone
+    'ALTER TABLE persone ADD COLUMN indirizzo TEXT',
+    'ALTER TABLE persone ADD COLUMN cap TEXT',
+    'ALTER TABLE persone ADD COLUMN citta TEXT',
+    'ALTER TABLE persone ADD COLUMN livello_studio TEXT',
+    'ALTER TABLE persone ADD COLUMN responsabile_diretto TEXT',
+    'ALTER TABLE persone ADD COLUMN assenza TEXT',
+    'ALTER TABLE persone ADD COLUMN td_sost TEXT',
+    'ALTER TABLE persone ADD COLUMN descrizione_cdc TEXT',
+    // Masterdata 20260407 — nuovi campi TNS in persone
+    'ALTER TABLE persone ADD COLUMN popolaz_tns TEXT',
+    'ALTER TABLE persone ADD COLUMN deltacdc_tns TEXT',
+    'ALTER TABLE persone ADD COLUMN cdc_new_tns TEXT',
+    'ALTER TABLE persone ADD COLUMN note_appr_tns TEXT',
+    // Masterdata 20260407 — nuovi campi SuccessFactors in persone
+    'ALTER TABLE persone ADD COLUMN escluso_sf TEXT',
+    'ALTER TABLE persone ADD COLUMN popolaz_sf TEXT',
+    'ALTER TABLE persone ADD COLUMN richiedente_sf TEXT',
+    'ALTER TABLE persone ADD COLUMN ricevente_sf_cognome TEXT',
+    'ALTER TABLE persone ADD COLUMN ricevente_sf_nome TEXT',
+    'ALTER TABLE persone ADD COLUMN ricevente_sf_cf TEXT',
   ]
   for (const sql of migrations) {
     try { db.exec(sql) } catch { /* colonna già esistente */ }
   }
+
+  // === Agent Notifications table ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_notifications (
+      id              TEXT PRIMARY KEY,
+      agent_type      TEXT NOT NULL,
+      severity        TEXT NOT NULL CHECK(severity IN ('critical','warning','info','suggestion')),
+      title           TEXT NOT NULL,
+      body            TEXT NOT NULL,
+      entity_type     TEXT,
+      entity_id       TEXT,
+      proposed_actions TEXT,
+      status          TEXT DEFAULT 'unread' CHECK(status IN ('unread','read','actioned','dismissed')),
+      created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actioned_at     DATETIME,
+      actioned_by     TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_notif_status ON agent_notifications(status);
+    CREATE INDEX IF NOT EXISTS idx_agent_notif_created ON agent_notifications(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_notif_severity ON agent_notifications(severity);
+  `)
+
+  // === Agent Chat Messages table ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_chat_messages (
+      id          TEXT PRIMARY KEY,
+      role        TEXT NOT NULL CHECK(role IN ('user','assistant')),
+      content     TEXT NOT NULL,
+      metadata    TEXT,
+      created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_created ON agent_chat_messages(created_at);
+  `)
 
   // Data migration idempotente: copia ruoli_tns → persone
   try {
@@ -281,4 +353,35 @@ function createSchema(db: Database.Database): void {
         AND EXISTS (SELECT 1 FROM ruoli_tns WHERE cf_persona = persone.cf)
     `)
   } catch { /* già migrato o tabella ruoli_tns vuota */ }
+
+  // Normalizzazione valori discreti — idempotente
+  try {
+    db.exec(`
+      UPDATE persone SET sede = 'Milano' WHERE sede IN ('MILANO','milano','MI');
+      UPDATE persone SET sede = 'Roma'   WHERE sede IN ('ROMA','roma','RM');
+      UPDATE persone SET sede = 'Trento' WHERE sede IN ('TRENTO','trento');
+      UPDATE persone SET sede = 'Genova' WHERE sede IN ('GENOVA','genova');
+      UPDATE persone SET sede = 'Londra' WHERE sede IN ('LONDRA','londra','London');
+
+      UPDATE nodi_organigramma SET sede = 'Milano' WHERE sede IN ('MILANO','milano','MI');
+      UPDATE nodi_organigramma SET sede = 'Roma'   WHERE sede IN ('ROMA','roma','RM');
+
+      UPDATE persone SET sesso = 'M' WHERE sesso IN ('m','male','MALE','uomo','U');
+      UPDATE persone SET sesso = 'F' WHERE sesso IN ('f','female','FEMALE','donna','D');
+
+      UPDATE persone SET societa = 'IL SOLE 24 ORE S.P.A.'
+        WHERE societa IN ('IL SOLE 24 ORE SPA','Il Sole 24 Ore','IL SOLE 24 ORE','il sole 24 ore s.p.a.');
+
+      UPDATE persone SET qualifica = 'GIORNALISTA'
+        WHERE qualifica IN ('Giornalista','GIORNALISTA    G','giornalista');
+      UPDATE persone SET qualifica = 'IMPIEGATO'
+        WHERE qualifica IN ('Impiegato','IMPIEGATO      I','impiegato');
+      UPDATE persone SET qualifica = 'DIRIGENTE'
+        WHERE qualifica IN ('Dirigente','dirigente');
+      UPDATE persone SET qualifica = 'COLLABORATORE'
+        WHERE qualifica IN ('Collaboratore','COLLABORATORE  C','collaboratore');
+      UPDATE persone SET qualifica = 'POLIGRAFICO'
+        WHERE qualifica IN ('Poligrafico','poligrafico');
+    `)
+  } catch { /* normalizzazione fallita — ignorata */ }
 }
