@@ -59,23 +59,67 @@ export async function POST(req: NextRequest) {
     }
 
     const database = db()
-    const persone = database.prepare(
-      'SELECT cf, cognome, nome, societa FROM persone WHERE deleted_at IS NULL'
-    ).all() as { cf: string; cognome: string; nome: string; societa?: string }[]
 
-    const nodi = database.prepare(
-      'SELECT id, nome_uo, reports_to FROM nodi_organigramma WHERE deleted_at IS NULL'
-    ).all() as { id: string; nome_uo: string; reports_to?: string }[]
+    // Short prompts (< 500 chars, no file) → context-free mode: only schema, no DB rows.
+    // The AI uses confidence='low' when it can't resolve a CF — the user fills it in.
+    const isShortPrompt = !file && text.length < 500
 
-    const struttureTns = database.prepare(
-      'SELECT codice, nome, padre FROM strutture_tns'
-    ).all() as { codice: string; nome: string; padre?: string }[]
+    let persone: { cf: string; cognome: string; nome: string; societa?: string }[] = []
+    let nodi: { id: string; nome_uo: string; reports_to?: string }[] = []
+    let struttureTns: { codice: string; nome: string; padre?: string }[] = []
+
+    if (!isShortPrompt) {
+      const textWords = [...new Set(
+        text.match(/[A-ZÀÈÌÒÙ][a-zàèìòùA-ZÀÈÌÒÙ]{2,}/g) ?? []
+      )].map(w => w.toLowerCase())
+
+      const allPersone = database.prepare(
+        'SELECT cf, cognome, nome, societa FROM persone WHERE deleted_at IS NULL'
+      ).all() as typeof persone
+
+      const matchedPersone = textWords.length > 0
+        ? allPersone.filter(p =>
+            textWords.some(w => p.cognome?.toLowerCase().includes(w) || p.nome?.toLowerCase().includes(w))
+          )
+        : []
+      persone = matchedPersone.length > 0 ? matchedPersone : allPersone.slice(0, 100)
+
+      const allNodi = database.prepare(
+        'SELECT id, nome_uo, reports_to FROM nodi_organigramma WHERE deleted_at IS NULL'
+      ).all() as typeof nodi
+
+      const matchedNodi = textWords.length > 0
+        ? allNodi.filter(n => textWords.some(w => n.nome_uo?.toLowerCase().includes(w)))
+        : []
+      nodi = matchedNodi.length > 0 ? matchedNodi : allNodi.slice(0, 80)
+
+      struttureTns = database.prepare(
+        'SELECT codice, nome, padre FROM strutture_tns LIMIT 100'
+      ).all() as typeof struttureTns
+    } else {
+      // Short prompt: resolve the person by name directly from DB to get the CF
+      const textWords = [...new Set(
+        text.match(/[A-ZÀÈÌÒÙ][a-zàèìòùA-ZÀÈÌÒÙ]{2,}/g) ?? []
+      )].map(w => w.toLowerCase())
+
+      if (textWords.length > 0) {
+        const allPersone = database.prepare(
+          'SELECT cf, cognome, nome, societa FROM persone WHERE deleted_at IS NULL'
+        ).all() as typeof persone
+        persone = allPersone.filter(p =>
+          textWords.some(w => p.cognome?.toLowerCase().includes(w) || p.nome?.toLowerCase().includes(w))
+        )
+      }
+    }
 
     const analysis = await analyzeOrdineServizio(text, { persone, nodi, struttureTns })
 
     return NextResponse.json(analysis)
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const raw = err instanceof Error ? err.message : String(err)
+    const message = raw.includes('429')
+      ? 'Limite richieste API raggiunto (429). Attendi qualche secondo e riprova, oppure controlla la quota del tuo piano Gemini.'
+      : raw
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

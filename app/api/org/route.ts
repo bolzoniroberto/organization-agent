@@ -7,8 +7,16 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url)
     const showDeleted = url.searchParams.get('showDeleted') === 'true'
 
-    const where = showDeleted ? '' : 'WHERE deleted_at IS NULL'
-    const rows = d.prepare(`SELECT * FROM nodi_organigramma ${where} ORDER BY id`).all()
+    const where = showDeleted ? 'WHERE 1=1' : 'WHERE n.deleted_at IS NULL'
+    const rows = d.prepare(`
+      SELECT n.*,
+             p.cognome AS cognome_persona,
+             p.nome    AS nome_persona
+      FROM nodi_organigramma n
+      LEFT JOIN persone p ON p.cf = n.cf_persona AND p.deleted_at IS NULL
+      ${where}
+      ORDER BY n.id
+    `).all()
 
     return NextResponse.json(rows)
   } catch (e) {

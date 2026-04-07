@@ -17,9 +17,11 @@ interface TreemapViewProps {
   selectedNodeId?: string
   onNodeClick?: (id: string, name: string) => void
   onNodeContextMenu?: (e: React.MouseEvent, nodeId: string) => void
+  colorMode?: string  // 'none' = standard neutro
+  getNodeColor?: (n: NodoOrganigramma) => { border: string; bg: string } | undefined
 }
 
-export default function TreemapView({ data, rootId, selectedNodeId, onNodeClick, onNodeContextMenu }: TreemapViewProps) {
+export default function TreemapView({ data, rootId, selectedNodeId, onNodeClick, onNodeContextMenu, colorMode = 'none', getNodeColor }: TreemapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
   const [hoveredNode, setHoveredNode] = useState<d3.HierarchyRectangularNode<HierarchyNodeData> | null>(null)
@@ -84,17 +86,34 @@ export default function TreemapView({ data, rootId, selectedNodeId, onNodeClick,
             const width = Math.max(0, node.x1 - node.x0)
             const height = Math.max(0, node.y1 - node.y0)
             const depth = node.depth
-            const hue = ((depth * 40) + ((node.x0 / dimensions.width) * 60)) % 360
-            const lightness = Math.max(20, 45 - depth * 6)
             const isHovered = hoveredNode?.data?.id === node.data.id
             const isSelected = selectedNodeId && node.data.id === selectedNodeId
-            const fill = isSelected
-              ? `hsl(${hue}, 80%, ${lightness + 18}%)`
-              : isHovered
-                ? `hsl(${hue}, 70%, ${lightness + 10}%)`
-                : `hsl(${hue}, 60%, ${lightness}%)`
-            const stroke = isSelected ? '#818cf8' : `hsl(${hue}, 60%, ${lightness + 20}%)`
-            const strokeWidth = isSelected ? 2 : 1
+            const isLeaf = !node.children || node.children.length === 0
+
+            // Colore semantico: solo foglie se colorMode attivo
+            const semanticColor = colorMode !== 'none' && isLeaf && node.data.data
+              ? getNodeColor?.(node.data.data)
+              : undefined
+
+            let fill: string
+            let stroke: string
+            let strokeWidth = isSelected ? 2 : 1
+
+            if (semanticColor) {
+              fill = isSelected ? semanticColor.border : isHovered ? semanticColor.border + 'cc' : semanticColor.bg
+              stroke = isSelected ? '#818cf8' : semanticColor.border
+            } else {
+              // Schema neutro — slate, varia solo per profondità
+              const baseL = Math.max(12, 30 - depth * 5)
+              const hoverL = baseL + 8
+              const selL   = baseL + 18
+              fill = isSelected
+                ? `hsl(220, 25%, ${selL}%)`
+                : isHovered
+                  ? `hsl(220, 20%, ${hoverL}%)`
+                  : `hsl(220, 15%, ${baseL}%)`
+              stroke = isSelected ? '#818cf8' : `hsl(220, 20%, ${baseL + 12}%)`
+            }
 
             return (
               <g

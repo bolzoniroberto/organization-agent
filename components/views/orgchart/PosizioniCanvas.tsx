@@ -16,8 +16,8 @@ import OrgNode, { type OrgNodeData } from '@/components/orgchart/OrgNode'
 import OrgGroupNode from '@/components/orgchart/OrgGroupNode'
 import NodeContextMenu from '@/components/orgchart/NodeContextMenu'
 import {
-  buildTree, analyzeTree, layoutTree, flattenTree, getBoundingBox,
-  findWidestHorizontalSubtree, type TreeNode, type LayoutConfig
+  buildTree, analyzeTree, layoutTree, flattenTree,
+  type TreeNode, type LayoutConfig
 } from '@/lib/orgchart-layout'
 import { useOrgDrill } from '@/lib/use-org-drill'
 import { EDGE_TYPES } from '@/components/orgchart/OrgEdge'
@@ -38,49 +38,67 @@ const SEDE_INNER_COLS = 4
 
 type ColorMode = string  // 'none' = nessuno, altrimenti = field key (es. 'sede', 'p:societa', ecc.)
 
+// Solo campi con valori discreti/categorici — adatti alla formattazione condizionale per colore
 const ALL_FIELD_OPTIONS: { group: string; fields: { value: string; label: string }[] }[] = [
   { group: 'Nodo', fields: [
     { value: '', label: '— nessuno —' },
-    { value: 'nome_uo', label: 'Nome UO' },
-    { value: 'cf_persona', label: 'CF Persona' },
-    { value: 'centro_costo', label: 'Centro Costo' },
-    { value: 'funzione', label: 'Funzione' },
-    { value: 'processo', label: 'Processo' },
-    { value: 'sede', label: 'Sede' },
-    { value: 'job_title', label: 'Job Title' },
+    { value: 'sede',        label: 'Sede' },
     { value: 'societa_org', label: 'Società Org' },
-    { value: 'tipo_collab', label: 'Tipo Collab' },
+    { value: 'testata_gg',  label: 'Testata GG' },
+    { value: 'funzione',    label: 'Funzione' },
+    { value: 'processo',    label: 'Processo' },
+    { value: 'tipo_collab', label: 'Tipo Collaborazione' },
+    { value: 'tipo_nodo',   label: 'Tipo Nodo' },
   ]},
   { group: 'Persona', fields: [
-    { value: 'p:nome_completo', label: 'Nome Cognome' },
-    { value: 'p:cognome', label: 'Cognome' },
-    { value: 'p:nome', label: 'Nome' },
-    { value: 'p:email', label: 'Email' },
-    { value: 'p:matricola', label: 'Matricola' },
-    { value: 'p:qualifica', label: 'Qualifica' },
-    { value: 'p:tipo_contratto', label: 'Tipo Contratto' },
-    { value: 'p:societa', label: 'Società' },
-    { value: 'p:area', label: 'Area' },
-    { value: 'p:sotto_area', label: 'Sotto Area' },
-    { value: 'p:sede', label: 'Sede (persona)' },
-    { value: 'p:cdc_amministrativo', label: 'CDC Amm.' },
-    { value: 'p:data_assunzione', label: 'Data Assunzione' },
-    { value: 'p:data_fine_rapporto', label: 'Data Fine Rapporto' },
-    { value: 'p:livello', label: 'Livello' },
-    { value: 'p:ral', label: 'RAL' },
-    { value: 'p:modalita_presenze', label: 'Modalità Presenze' },
-    { value: 'p:part_time', label: 'Part Time' },
+    { value: 'p:sesso',              label: 'Sesso' },
+    { value: 'p:societa',            label: 'Società' },
+    { value: 'p:qualifica',          label: 'Qualifica' },
+    { value: 'p:livello',            label: 'Livello' },
+    { value: 'p:area',               label: 'Area' },
+    { value: 'p:sotto_area',         label: 'Sotto Area' },
+    { value: 'p:sede',               label: 'Sede (persona)' },
+    { value: 'p:tipo_contratto',     label: 'Tipo Contratto' },
+    { value: 'p:modalita_presenze',  label: 'Modalità Presenze' },
+    { value: 'p:cittadinanza',       label: 'Cittadinanza' },
+    { value: 'p:sw_tipologia',       label: 'Smart Working' },
+    { value: 'p:gruppo_sind',        label: 'Gruppo Sindacale' },
+    { value: 'p:categoria_protetta', label: 'Categoria Protetta' },
   ]},
   { group: 'TNS', fields: [
-    { value: 'p:codice_tns', label: 'Codice TNS' },
-    { value: 'p:padre_tns', label: 'Padre TNS' },
-    { value: 'p:livello_tns', label: 'Livello TNS' },
-    { value: 'p:sede_tns', label: 'Sede TNS' },
-    { value: 'p:cdc_tns', label: 'CDC TNS' },
-    { value: 'p:titolare_tns', label: 'Titolare TNS' },
-    { value: 'p:ruoli_tns_desc', label: 'Ruoli TNS' },
+    { value: 'p:livello_tns',     label: 'Livello TNS' },
+    { value: 'p:sede_tns',        label: 'Sede TNS' },
+    { value: 'p:tipo_approvatore',label: 'Tipo Approvatore' },
   ]},
 ]
+
+// Colori semantici fissi per valori noti — sovrascrivono la palette automatica
+const SEMANTIC_COLORS: Record<string, ColorScheme> = {
+  // Qualifica
+  'GIORNALISTA':   { border: 'hsl(210,70%,55%)', bg: 'hsl(210,70%,18%)' },
+  'IMPIEGATO':     { border: 'hsl(150,60%,50%)', bg: 'hsl(150,60%,16%)' },
+  'DIRIGENTE':     { border: 'hsl(45,80%,55%)',  bg: 'hsl(45,80%,16%)'  },
+  'COLLABORATORE': { border: 'hsl(280,55%,55%)', bg: 'hsl(280,55%,16%)' },
+  'POLIGRAFICO':   { border: 'hsl(20,65%,52%)',  bg: 'hsl(20,65%,16%)'  },
+  'PRATICANTE':    { border: 'hsl(185,60%,50%)', bg: 'hsl(185,60%,16%)' },
+  'BORSISTA/STAGE':{ border: 'hsl(320,55%,55%)', bg: 'hsl(320,55%,16%)' },
+  'QUADRO':        { border: 'hsl(60,65%,50%)',  bg: 'hsl(60,65%,16%)'  },
+  // Sesso
+  'M':             { border: 'hsl(210,65%,55%)', bg: 'hsl(210,65%,16%)' },
+  'F':             { border: 'hsl(340,65%,55%)', bg: 'hsl(340,65%,16%)' },
+  // Tipo nodo
+  'STRUTTURA':     { border: 'hsl(220,40%,50%)', bg: 'hsl(220,40%,15%)' },
+  'PERSONA':       { border: 'hsl(150,55%,48%)', bg: 'hsl(150,55%,15%)' },
+  'ANOMALIA':      { border: 'hsl(35,75%,50%)',  bg: 'hsl(35,75%,15%)'  },
+  // Sede
+  'Milano':        { border: 'hsl(200,65%,52%)', bg: 'hsl(200,65%,16%)' },
+  'Roma':          { border: 'hsl(10,65%,52%)',  bg: 'hsl(10,65%,16%)'  },
+  'Trento':        { border: 'hsl(140,55%,48%)', bg: 'hsl(140,55%,16%)' },
+  'Londra':        { border: 'hsl(260,55%,55%)', bg: 'hsl(260,55%,16%)' },
+  // Modalità presenze (T e E non duplicano Sesso)
+  'T':             { border: 'hsl(150,60%,50%)', bg: 'hsl(150,60%,16%)' },
+  'E':             { border: 'hsl(45,70%,52%)',  bg: 'hsl(45,70%,16%)'  },
+}
 const ALL_FIELD_FLAT = ALL_FIELD_OPTIONS.flatMap(g => g.fields)
 
 function resolveField(n: NodoOrganigramma, field: string): string | null | undefined {
@@ -139,13 +157,18 @@ function buildColorMap(nodi: NodoOrganigramma[], mode: string, personaMap: Map<s
   if (mode === 'none') return new Map()
   const vals = nodi.map(n => resolveFieldWithPersona(n, mode, personaMap) ?? '').filter(Boolean)
   const unique = [...new Set(vals)]
-  return new Map(unique.map((val, i) => [
-    val,
-    {
-      border: `hsl(${Math.round((i / Math.max(unique.length, 1)) * 300)}, 60%, 55%)`,
-      bg: `hsl(${Math.round((i / Math.max(unique.length, 1)) * 300)}, 60%, 20%)`
+  // Valori senza colore semantico fisso — assegna palette automatica
+  const dynamic = unique.filter(v => !SEMANTIC_COLORS[v])
+  let dynIdx = 0
+  return new Map(unique.map(val => {
+    if (SEMANTIC_COLORS[val]) return [val, SEMANTIC_COLORS[val]]
+    const color = {
+      border: `hsl(${Math.round((dynIdx / Math.max(dynamic.length, 1)) * 300)}, 60%, 55%)`,
+      bg:     `hsl(${Math.round((dynIdx / Math.max(dynamic.length, 1)) * 300)}, 60%, 20%)`
     }
-  ]))
+    dynIdx++
+    return [val, color]
+  }))
 }
 
 
@@ -240,13 +263,12 @@ function buildSedeLayout(
 }
 
 export default function PosizioniCanvas() {
-  const { nodi, persone, refreshAll, hasDismissedReadabilityAlert, dismissReadabilityAlert } = useHRStore()
+  const { nodi, persone, refreshAll } = useHRStore()
   const personaMap = useMemo(() => new Map(persone.map(p => [p.cf, p])), [persone])
   const filtered = useMemo(() => nodi.filter(n => !n.deleted_at), [nodi])
 
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set())
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [showReadabilityAlert, setShowReadabilityAlert] = useState(false)
   const [drawerRecord, setDrawerRecord] = useState<NodoOrganigramma | null>(null)
   const [drawerInitialMode, setDrawerInitialMode] = useState<'view' | 'edit'>('view')
   const [pendingAssign, setPendingAssign] = useState<{
@@ -517,20 +539,6 @@ export default function PosizioniCanvas() {
     }
     const f = filterTree(root)
     layoutTree(f, 0, cfg)
-
-    let iter = 0
-    let bbox = getBoundingBox(f)
-    let ratio = (bbox.maxX - bbox.minX) / Math.max(1, bbox.maxY - bbox.minY)
-    while (ratio > TARGET_RATIO && iter < MAX_ITER && metrics.totalNodes > 10) {
-      const target = findWidestHorizontalSubtree(f)
-      if (!target) break
-      target._verticalStacked = true
-      cfg.forcedVerticalNodes.add(target.id)
-      layoutTree(f, 0, cfg)
-      bbox = getBoundingBox(f)
-      ratio = (bbox.maxX - bbox.minX) / Math.max(1, bbox.maxY - bbox.minY)
-      iter++
-    }
     return flattenTree(f)
   }, [groupedNodiResult, collapsedSet, leafListMode, groupByName, groupedPersonsMap, nodeFields])
 
@@ -671,6 +679,42 @@ export default function PosizioniCanvas() {
       setTimeout(() => fitView({ padding: 0.2, duration: 400, minZoom: 0.1 }), 50)
     })
   }, [filtered, drillTo, fitView])
+
+  const expandToLevel = useCallback((level: number) => {
+    // Build children map
+    const childrenMap = new Map<string, string[]>()
+    filtered.forEach(n => {
+      if (n.reports_to) {
+        if (!childrenMap.has(n.reports_to)) childrenMap.set(n.reports_to, [])
+        childrenMap.get(n.reports_to)!.push(n.id)
+      }
+    })
+
+    // Find starting root(s)
+    const allIds = new Set(filtered.map(n => n.id))
+    const startIds: string[] = drillRootId
+      ? [drillRootId]
+      : filtered.filter(n => !n.reports_to || !allIds.has(n.reports_to)).map(n => n.id)
+
+    // Walk N levels, collecting IDs that should be VISIBLE (expanded)
+    const expandedIds = new Set<string>()
+    let currentLevel = startIds
+    for (let depth = 0; depth <= level; depth++) {
+      currentLevel.forEach(id => expandedIds.add(id))
+      if (depth < level) {
+        const nextLevel: string[] = []
+        currentLevel.forEach(id => {
+          const children = childrenMap.get(id) ?? []
+          nextLevel.push(...children)
+        })
+        currentLevel = nextLevel
+      }
+    }
+
+    // All nodes NOT in expandedIds should be collapsed
+    setCollapsedSet(new Set(filtered.filter(n => !expandedIds.has(n.id)).map(n => n.id)))
+    setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.1 }), 100)
+  }, [filtered, drillRootId, fitView])
 
   const toggleCollapse = useCallback((id: string) => {
     setCollapsedSet(prev => {
@@ -950,12 +994,6 @@ export default function PosizioniCanvas() {
       openDrawer, nodeFields, personaMap, isPinned, leafListMode, groupedPersonsMap, handleDropPersonOnNode,
       drillAncestorSet, drillRootId, filtered])
 
-  // Trigger readability alert if tree grows too big
-  useEffect(() => {
-    if (viewMode === 'tree' && visualMode === 'flow' && !hasDismissedReadabilityAlert && nodes.length > 25) {
-      setShowReadabilityAlert(true)
-    }
-  }, [nodes.length, viewMode, visualMode, hasDismissedReadabilityAlert])
 
   useEffect(() => {
     prevVisibleIdsRef.current = new Set(nodes.filter(n => n.type === 'orgNode').map(n => n.id))
@@ -1131,17 +1169,30 @@ export default function PosizioniCanvas() {
           )}
         </div>
 
-        {viewMode === 'tree' && !drillRootId && (
-          <>
-            <button onClick={() => setCollapsedSet(new Set())}
-              className="text-sm text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-700 rounded-md transition-colors">
-              Espandi tutto
-            </button>
-            <button onClick={collapseToRoot}
-              className="text-sm text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-700 rounded-md transition-colors">
-              Comprimi tutto
-            </button>
-          </>
+        {viewMode === 'tree' && (
+          <div className="flex items-center gap-0.5">
+            <select
+              onChange={e => {
+                const val = e.target.value
+                if (val === 'all') setCollapsedSet(new Set())
+                else if (val === '0') collapseToRoot()
+                else expandToLevel(parseInt(val))
+                e.target.value = ''
+              }}
+              value=""
+              className="text-xs bg-slate-800 border border-slate-600 rounded-md px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+              title="Espandi l'organigramma fino al livello selezionato"
+            >
+              <option value="" disabled>Espandi livello…</option>
+              <option value="0">Comprimi tutto</option>
+              <option value="1">Livello 1 — Figli</option>
+              <option value="2">Livello 2 — Nipoti</option>
+              <option value="3">Livello 3 — Bis-nipoti</option>
+              <option value="4">Livello 4</option>
+              <option value="5">Livello 5</option>
+              <option value="all">Espandi tutto</option>
+            </select>
+          </div>
         )}
 
         {/* Visual Mode Toggle (Flow vs Treemap) */}
@@ -1558,6 +1609,11 @@ export default function PosizioniCanvas() {
                 setFocusedNode(nodeId)
                 setContextMenu({ nodeId, x: e.clientX, y: e.clientY })
               }}
+              colorMode={colorMode}
+              getNodeColor={(n) => colorMode !== 'none'
+                ? colorMap.get(resolveFieldWithPersona(n, colorMode, personaMap) ?? '') ?? undefined
+                : undefined
+              }
             />
           ) : (
             <ReactFlow
@@ -1897,26 +1953,6 @@ export default function PosizioniCanvas() {
           Trascina un nodo sopra un altro per cambiarne il responsabile
         </div>
       )}
-      {/* Modale Alert Leggibilità */}
-      <InfoDialog
-        open={showReadabilityAlert}
-        title="Vista Complessa"
-        confirmLabel="Ho capito"
-        onClose={() => {
-          setShowReadabilityAlert(false)
-          dismissReadabilityAlert()
-        }}
-        message={
-          <div className="space-y-3">
-            <p>
-              Attualmente ci sono molti nodi aperti contemporaneamente ed è difficile visualizzarli tutti agevolmente in questo formato.
-            </p>
-            <p>
-              Per una visione complessiva aggregata ti consigliamo di esplorare la nuova modalità <strong className="text-white">Treemap</strong> nella barra superiore, oppure di chiudere i nodi più estesi con &quot;Comprimi tutto&quot;.
-            </p>
-          </div>
-        }
-      />
     </div>
   )
 }

@@ -87,7 +87,7 @@ const OrgNode = memo(function OrgNode({ data, selected }: OrgNodeProps) {
     ?? (semanticStatus ? SEMANTIC_BORDER[semanticStatus] : undefined)
 
   const colorStyles: React.CSSProperties = leftBorder
-    ? { borderLeftColor: leftBorder, borderLeftWidth: 4, backgroundColor: '#1e293b' }
+    ? { borderColor: leftBorder, borderWidth: 2, backgroundColor: colorScheme?.bg ?? '#1e293b' }
     : {}
 
   const containerClasses = [

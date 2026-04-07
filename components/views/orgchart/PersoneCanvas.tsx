@@ -14,17 +14,14 @@ import OrgNode from '@/components/orgchart/OrgNode'
 import NodeContextMenu from '@/components/orgchart/NodeContextMenu'
 import RecordDrawer from '@/components/shared/RecordDrawer'
 import {
-  buildTree, analyzeTree, layoutTree, flattenTree, getBoundingBox,
-  findWidestHorizontalSubtree, type TreeNode, type LayoutConfig
+  buildTree, analyzeTree, layoutTree, flattenTree,
+  type TreeNode, type LayoutConfig
 } from '@/lib/orgchart-layout'
 import { useOrgDrill } from '@/lib/use-org-drill'
 import { EDGE_TYPES } from '@/components/orgchart/OrgEdge'
 import { usePersistedState } from '@/lib/use-persisted-state'
 
 const NODE_TYPES = { orgNode: OrgNode }
-const TARGET_RATIO = 1.8
-const MAX_ITER = 5
-
 type ColorMode = 'none' | 'societa' | 'area'
 type ColorScheme = { border: string; bg: string }
 
@@ -211,20 +208,6 @@ export default function PersoneCanvas() {
     }
     const f = filterTree(root)
     layoutTree(f, 0, cfg)
-
-    let iter = 0
-    let bbox = getBoundingBox(f)
-    let ratio = (bbox.maxX - bbox.minX) / Math.max(1, bbox.maxY - bbox.minY)
-    while (ratio > TARGET_RATIO && iter < MAX_ITER && metrics.totalNodes > 20) {
-      const target = findWidestHorizontalSubtree(f)
-      if (!target) break
-      target._verticalStacked = true
-      cfg.forcedVerticalNodes.add(target.id)
-      layoutTree(f, 0, cfg)
-      bbox = getBoundingBox(f)
-      ratio = (bbox.maxX - bbox.minX) / Math.max(1, bbox.maxY - bbox.minY)
-      iter++
-    }
     return flattenTree(f)
   }, [drilledTimesheet, collapsedSet])
 

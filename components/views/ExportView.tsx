@@ -71,6 +71,13 @@ function ExportCard({
   }
 
   const hasErrors = result && result.errors.length > 0
+  const BLOCKING_FIELDS = ['ID (mancante)', 'ID (duplicato)', 'Ciclo gerarchia']
+  const hasBlockingErrors = result && result.errors.some(
+    (e: IssueRow) => {
+      const f = String(e.field ?? '')
+      return BLOCKING_FIELDS.includes(f) || f.includes('non esiste')
+    }
+  )
 
   return (
     <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 flex flex-col gap-3">
@@ -93,7 +100,8 @@ function ExportCard({
             </button>
             <button
               onClick={handleDownload}
-              disabled={downloading}
+              disabled={downloading || !!hasBlockingErrors}
+              title={hasBlockingErrors ? 'Correggi gli errori bloccanti prima di scaricare' : undefined}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-indigo-700 bg-indigo-900/30 text-indigo-300 hover:border-indigo-500 hover:text-indigo-100 transition-colors disabled:opacity-40"
             >
               {downloading
@@ -137,7 +145,12 @@ function ExportCard({
               </>
             )}
           </div>
-          {hasErrors && (
+          {hasBlockingErrors && (
+            <p className="text-xs text-red-400/70 mt-1">
+              Download bloccato — correggi ID duplicati, cicli nella gerarchia o ReportsTo non validi prima di esportare.
+            </p>
+          )}
+          {hasErrors && !hasBlockingErrors && (
             <p className="text-xs text-red-400/70 mt-1">
               Il file può essere scaricato, ma i campi indicati saranno vuoti nel template.
             </p>

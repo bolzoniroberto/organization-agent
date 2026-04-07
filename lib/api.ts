@@ -1,7 +1,7 @@
 import type {
   NodoOrganigramma, Persona, SupervisioneTimesheet, StrutturaTns,
   ChangeLogEntry, ImportReport, VariabileOrgDefinizione, VariabileOrgValore, CleaningProposal,
-  OrdineServizioAnalysis, OrdineServizioProposal
+  OrdineServizioAnalysis, OrdineServizioProposal, AgentNotification
 } from '../types'
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? ''
@@ -287,6 +287,51 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ proposte }),
       }).then(r => json(r)),
+
+    notifications: {
+      list: (status: 'unread' | 'all' = 'all'): Promise<{ notifications: AgentNotification[]; unreadCount: number }> =>
+        fetch(u(`/api/agents/notifications?status=${status}`)).then(r => json(r)),
+
+      markRead: (id: string): Promise<{ success: boolean }> =>
+        fetch(u('/api/agents/notifications'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, action: 'read' }),
+        }).then(r => json(r)),
+
+      dismiss: (id: string): Promise<{ success: boolean }> =>
+        fetch(u('/api/agents/notifications'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, action: 'dismiss' }),
+        }).then(r => json(r)),
+
+      dismissAll: (): Promise<{ success: boolean }> =>
+        fetch(u('/api/agents/notifications'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'dismiss_all' }),
+        }).then(r => json(r)),
+    },
+
+
+    scan: (): Promise<{ success: boolean; created: number; total: number; message: string }> =>
+      fetch(u('/api/agents/scan'), { method: 'POST' }).then(r => json(r)),
+
+    chat: {
+      history: (limit = 50): Promise<{ messages: { id: string; role: string; content: string; metadata?: string; created_at: string }[] }> =>
+        fetch(u(`/api/agents/chat?limit=${limit}`)).then(r => json(r)),
+
+      send: (message: string): Promise<{ response: string; toolCalls?: { name: string; input: string; output: string }[]; messageId: string }> =>
+        fetch(u('/api/agents/chat'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message }),
+        }).then(r => json(r)),
+
+      clear: (): Promise<{ success: boolean }> =>
+        fetch(u('/api/agents/chat'), { method: 'DELETE' }).then(r => json(r)),
+    },
   },
 
   export: {

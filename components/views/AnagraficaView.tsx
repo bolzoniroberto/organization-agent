@@ -20,6 +20,8 @@ const NODI_ALL_COLS = [
   { field: 'reports_to', label: 'Reports To' },
   { field: 'tipo_nodo', label: 'Tipo' },
   { field: 'cf_persona', label: 'CF Persona' },
+  { field: 'cognome_persona', label: 'Cognome Titolare' },
+  { field: 'nome_persona', label: 'Nome Titolare' },
   { field: 'nome_uo', label: 'Nome UO' },
   { field: 'nome_uo_2', label: 'Nome UO 2' },
   { field: 'centro_costo', label: 'Centro Costo' },
@@ -219,7 +221,9 @@ export default function AnagraficaView() {
           ? <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${TIPO_NODO_BADGE[p.value] ?? 'bg-slate-700 text-slate-300'}`}>{p.value}</span>
           : null
       },
-      cf_persona: { field: 'cf_persona', headerName: 'CF Persona', width: 150, editable: true, cellClass: 'font-mono text-xs text-slate-400' },
+      cf_persona:       { field: 'cf_persona',       headerName: 'CF Persona',       width: 150, editable: true,  cellClass: 'font-mono text-xs text-slate-400' },
+      cognome_persona:  { field: 'cognome_persona',  headerName: 'Cognome Titolare', flex: 1,    editable: false, suppressFillHandle: true, cellClass: 'text-sm text-slate-200' },
+      nome_persona:     { field: 'nome_persona',     headerName: 'Nome Titolare',    flex: 1,    editable: false, suppressFillHandle: true, cellClass: 'text-sm text-slate-300' },
       nome_uo: { field: 'nome_uo', headerName: 'Nome UO', flex: 2, editable: true, cellClass: 'text-sm text-slate-200' },
       nome_uo_2: { field: 'nome_uo_2', headerName: 'Nome UO 2', flex: 1, editable: true, cellClass: 'text-sm text-slate-300' },
       centro_costo: { field: 'centro_costo', headerName: 'Centro Costo', width: 120, editable: true, cellClass: 'text-xs text-slate-400' },

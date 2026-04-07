@@ -2,6 +2,7 @@
 import React from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { ChevronDown, Moon, Sun, Building2 } from 'lucide-react'
+import NotificationPanel from './NotificationPanel'
 import { useHRStore } from '@/store/useHRStore'
 import type { ActiveSection, ActiveView } from '@/types'
 
@@ -189,6 +190,8 @@ export default function TopMenuBar() {
       </nav>
 
       <div className="flex-1" />
+
+      <NotificationPanel />
 
       <button
         onClick={() => setDark(d => !d)}

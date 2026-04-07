@@ -20,6 +20,9 @@ export interface NodoOrganigramma {
   deleted_at: string | null
   created_at?: string
   updated_at?: string
+  // campi virtuali da JOIN persone
+  cognome_persona?: string | null
+  nome_persona?: string | null
 }
 
 export interface Persona {
@@ -256,6 +259,24 @@ export interface SchedaMovimentoParsed {
 
 export type OrgSubTab = 'posizioni' | 'persone' | 'tns'
 export type TipoNodo = 'STRUTTURA' | 'PERSONA' | 'ANOMALIA'
+
+export type AgentNotificationSeverity = 'critical' | 'warning' | 'info' | 'suggestion'
+export type AgentNotificationStatus = 'unread' | 'read' | 'actioned' | 'dismissed'
+
+export interface AgentNotification {
+  id: string
+  agent_type: string
+  severity: AgentNotificationSeverity
+  title: string
+  body: string
+  entity_type: string | null
+  entity_id: string | null
+  proposed_actions: string | null
+  status: AgentNotificationStatus
+  created_at: string
+  actioned_at: string | null
+  actioned_by: string | null
+}
 
 export interface PinnedView {
   id: string

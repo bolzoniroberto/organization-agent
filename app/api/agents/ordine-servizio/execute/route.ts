@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db, writeChangeLog } from '@/lib/db'
 import type { OrdineServizioProposal } from '@/types'
 
+// Coerce any value to a SQLite-safe type
+function toSqlite(v: unknown): string | number | bigint | Buffer | null {
+  if (v === null || v === undefined) return null
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'bigint') return v
+  if (Buffer.isBuffer(v)) return v
+  if (typeof v === 'boolean') return v ? 1 : 0
+  return JSON.stringify(v) // objects/arrays → JSON string
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { proposte } = await req.json() as { proposte: OrdineServizioProposal[] }
@@ -23,7 +33,7 @@ export async function POST(req: NextRequest) {
             if (!cf) { errors.push(`INSERT_PERSONA senza CF: ${p.label}`); break }
             const cols = Object.keys(d).join(', ')
             const placeholders = Object.keys(d).map(() => '?').join(', ')
-            database.prepare(`INSERT OR IGNORE INTO persone (${cols}) VALUES (${placeholders})`).run(...Object.values(d))
+            database.prepare(`INSERT OR IGNORE INTO persone (${cols}) VALUES (${placeholders})`).run(...Object.values(d).map(toSqlite))
             writeChangeLog('persona', cf, p.entityLabel ?? null, 'AGENT_SUGGEST', null, null, JSON.stringify(d))
             applied++
             break
@@ -35,7 +45,7 @@ export async function POST(req: NextRequest) {
             const d = p.data as Record<string, unknown>
             const old = database.prepare('SELECT * FROM persone WHERE cf = ?').get(cf) as Record<string, unknown> | undefined
             for (const [field, newVal] of Object.entries(d)) {
-              database.prepare(`UPDATE persone SET ${field} = ? WHERE cf = ?`).run(newVal, cf)
+              database.prepare(`UPDATE persone SET ${field} = ? WHERE cf = ?`).run(toSqlite(newVal), cf)
               writeChangeLog('persona', cf, p.entityLabel ?? null, 'AGENT_SUGGEST', field, old?.[field] != null ? String(old[field]) : null, newVal != null ? String(newVal) : null)
             }
             applied++
@@ -57,7 +67,7 @@ export async function POST(req: NextRequest) {
             if (!id) { errors.push(`INSERT_NODO senza ID: ${p.label}`); break }
             const cols = Object.keys(d).join(', ')
             const placeholders = Object.keys(d).map(() => '?').join(', ')
-            database.prepare(`INSERT OR IGNORE INTO nodi_organigramma (${cols}) VALUES (${placeholders})`).run(...Object.values(d))
+            database.prepare(`INSERT OR IGNORE INTO nodi_organigramma (${cols}) VALUES (${placeholders})`).run(...Object.values(d).map(toSqlite))
             writeChangeLog('nodo', id, p.entityLabel ?? null, 'AGENT_SUGGEST', null, null, JSON.stringify(d))
             applied++
             break
@@ -69,7 +79,7 @@ export async function POST(req: NextRequest) {
             const d = p.data as Record<string, unknown>
             const old = database.prepare('SELECT * FROM nodi_organigramma WHERE id = ?').get(id) as Record<string, unknown> | undefined
             for (const [field, newVal] of Object.entries(d)) {
-              database.prepare(`UPDATE nodi_organigramma SET ${field} = ? WHERE id = ?`).run(newVal, id)
+              database.prepare(`UPDATE nodi_organigramma SET ${field} = ? WHERE id = ?`).run(toSqlite(newVal), id)
               writeChangeLog('nodo', id, p.entityLabel ?? null, 'AGENT_SUGGEST', field, old?.[field] != null ? String(old[field]) : null, newVal != null ? String(newVal) : null)
             }
             applied++
@@ -91,10 +101,19 @@ export async function POST(req: NextRequest) {
             const cf = p.entityId
             if (!cf) { errors.push(`UPDATE_RUOLO_TNS senza CF: ${p.label}`); break }
             const d = p.data as Record<string, unknown>
-            const old = database.prepare('SELECT * FROM persone WHERE cf = ?').get(cf) as Record<string, unknown> | undefined
+            const existingTns = database.prepare('SELECT * FROM ruoli_tns WHERE cf_persona = ?').get(cf) as Record<string, unknown> | undefined
+            const existingPersona = database.prepare('SELECT * FROM persone WHERE cf = ?').get(cf) as Record<string, unknown> | undefined
+            if (!existingPersona) { errors.push(`UPDATE_RUOLO_TNS: persona non trovata per CF ${cf}`); break }
             for (const [field, newVal] of Object.entries(d)) {
-              database.prepare(`UPDATE persone SET ${field} = ? WHERE cf = ?`).run(newVal, cf)
-              writeChangeLog('persona', cf, p.entityLabel ?? null, 'AGENT_SUGGEST', field, old?.[field] != null ? String(old[field]) : null, newVal != null ? String(newVal) : null)
+              const safe = toSqlite(newVal)
+              const oldVal = existingTns?.[field] ?? existingPersona[field]
+              // Update ruoli_tns if record exists
+              if (existingTns) {
+                database.prepare(`UPDATE ruoli_tns SET ${field} = ? WHERE cf_persona = ?`).run(safe, cf)
+              }
+              // Always update persone (mirrored columns)
+              database.prepare(`UPDATE persone SET ${field} = ? WHERE cf = ?`).run(safe, cf)
+              writeChangeLog('ruolo_tns', cf, p.entityLabel ?? null, 'AGENT_SUGGEST', field, oldVal != null ? String(oldVal) : null, newVal != null ? String(newVal) : null)
             }
             applied++
             break
@@ -106,7 +125,7 @@ export async function POST(req: NextRequest) {
             if (!codice) { errors.push(`INSERT_STRUTTURA_TNS senza codice: ${p.label}`); break }
             const cols = Object.keys(d).join(', ')
             const placeholders = Object.keys(d).map(() => '?').join(', ')
-            database.prepare(`INSERT OR IGNORE INTO strutture_tns (${cols}) VALUES (${placeholders})`).run(...Object.values(d))
+            database.prepare(`INSERT OR IGNORE INTO strutture_tns (${cols}) VALUES (${placeholders})`).run(...Object.values(d).map(toSqlite))
             writeChangeLog('struttura_tns', codice, p.entityLabel ?? null, 'AGENT_SUGGEST', null, null, JSON.stringify(d))
             applied++
             break
@@ -118,7 +137,7 @@ export async function POST(req: NextRequest) {
             const d = p.data as Record<string, unknown>
             const old = database.prepare('SELECT * FROM strutture_tns WHERE codice = ?').get(codice) as Record<string, unknown> | undefined
             for (const [field, newVal] of Object.entries(d)) {
-              database.prepare(`UPDATE strutture_tns SET ${field} = ? WHERE codice = ?`).run(newVal, codice)
+              database.prepare(`UPDATE strutture_tns SET ${field} = ? WHERE codice = ?`).run(toSqlite(newVal), codice)
               writeChangeLog('struttura_tns', codice, p.entityLabel ?? null, 'AGENT_SUGGEST', field, old?.[field] != null ? String(old[field]) : null, newVal != null ? String(newVal) : null)
             }
             applied++

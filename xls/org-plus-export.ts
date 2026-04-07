@@ -20,7 +20,7 @@ const HEADERS = [
   "RuoliHR","AltriRuoli","Sede_TNS","GruppoSind","Controllo","RespAreaCODFIS","RespAreaCOGN",
   "RespAreaNOM","RespSottoareaCODFIS","RespSottoareaCOGN","RespSottoareaNOM","SBCAP",
   "Escluso SF","Popolazione SF","Cogn","Nome","TxCodFisc","Richiedente SF","Ricevente_Cognome",
-  "Ricevente_Nome","Ricevente_CodFis","Note","NO_ORG1e2liv","New posizione dopo","Free",
+  "Ricevente_Nome","Ricevente_CodFis","Note","NO_ORG1e2liv","Free",
   "Titolare_SGSL","Ruolo_SGSL","SGSL_SI",
 ]
 
@@ -47,8 +47,8 @@ function buildRow(r: NR): (string | number | null)[] {
     '',                          // Note Txt
     '',                          // Note Txt 2
     e(r.note_uo),               // Note su Unità
-    e(r.n_sede),                // Sede
-    '',                          // Sede 2
+    e(r.n_sede),                // Sede (sede del nodo/struttura)
+    isP ? e(r.p_sede) : '',     // Sede 2 (sede anagrafica persona)
     e(r.tipo_collab),           // Tipo Collaborazione
     '',                          // Maternità
     e(r.processo),              // Processo
@@ -149,7 +149,6 @@ function buildRow(r: NR): (string | number | null)[] {
     '',                          // Ricevente_CodFis
     '',                          // Note
     '',                          // NO_ORG1e2liv
-    e(r.nome_uo),               // New posizione dopo
     '',                          // Free
     titolare,                    // Titolare_SGSL
     '',                          // Ruolo_SGSL
@@ -164,6 +163,8 @@ export interface OrgPlusIssue {
   field: string
   severity: 'error' | 'warning'
 }
+
+const CF_REGEX = /^[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]$/i
 
 const PERSONA_REQUIRED = [
   { field: 'SocietàOrg', key: 'societa_org' },
@@ -210,6 +211,7 @@ function queryRows(d: ReturnType<typeof db>) {
       n.funzione, n.fte, n.job_title,
       p.cf AS p_cf, p.cognome, p.nome, p.sesso, p.email,
       p.societa, p.area, p.sotto_area, p.cdc_amministrativo,
+      p.sede AS p_sede,
       p.data_assunzione, p.data_fine_rapporto, p.tipo_contratto,
       p.qualifica, p.livello, p.ral, p.data_nascita, p.part_time,
       p.codice_tns, p.padre_tns, p.livello_tns, p.titolare_tns,
@@ -225,39 +227,119 @@ function queryRows(d: ReturnType<typeof db>) {
   `).all() as NR[]
 }
 
+function detectCycles(rows: NR[]): string[] {
+  const parentMap = new Map<string, string>()
+  for (const r of rows) {
+    if (r.id && r.reports_to) parentMap.set(String(r.id), String(r.reports_to))
+  }
+  const cycleNodes: string[] = []
+  const visited = new Set<string>()
+
+  for (const id of parentMap.keys()) {
+    if (visited.has(id)) continue
+    const path = new Set<string>()
+    let cur: string | undefined = id
+    while (cur && !visited.has(cur)) {
+      if (path.has(cur)) {
+        cycleNodes.push(cur)
+        break
+      }
+      path.add(cur)
+      cur = parentMap.get(cur)
+    }
+    for (const n of path) visited.add(n)
+  }
+  return cycleNodes
+}
+
 export function validateOrgPlus(): { errors: OrgPlusIssue[]; warnings: OrgPlusIssue[] } {
   const d = db()
   const rows = queryRows(d)
   const errors: OrgPlusIssue[] = []
   const warnings: OrgPlusIssue[] = []
 
+  const allIds = new Set<string>()
+  const duplicateIds = new Set<string>()
+
   for (const r of rows) {
+    const id = String(r.id ?? '')
+    if (id && allIds.has(id)) duplicateIds.add(id)
+    if (id) allIds.add(id)
+  }
+
+  const cycles = detectCycles(rows)
+  const cycleSet = new Set(cycles)
+
+  for (const r of rows) {
+    const id = String(r.id ?? '')
     const label = r.tipo_nodo === 'PERSONA'
-      ? `${r.cognome ?? ''} ${r.nome ?? ''}`.trim() || String(r.id)
-      : String(r.nome_uo ?? r.id)
+      ? `${r.cognome ?? ''} ${r.nome ?? ''}`.trim() || id
+      : String(r.nome_uo ?? id)
+
+    const tipo = String(r.tipo_nodo ?? 'UNKNOWN')
+
+    // --- Errori bloccanti ---
+
+    if (!id) {
+      errors.push({ nodoId: '—', tipo, label, field: 'ID (mancante)', severity: 'error' })
+    }
+
+    if (duplicateIds.has(id)) {
+      errors.push({ nodoId: id, tipo, label, field: 'ID (duplicato)', severity: 'error' })
+    }
+
+    if (r.reports_to && !allIds.has(String(r.reports_to))) {
+      errors.push({ nodoId: id, tipo, label, field: `ReportsTo → ${r.reports_to} (non esiste)`, severity: 'error' })
+    }
+
+    if (cycleSet.has(id)) {
+      errors.push({ nodoId: id, tipo, label, field: 'Ciclo gerarchia', severity: 'error' })
+    }
+
+    // --- Warning ---
 
     if (r.tipo_nodo === 'PERSONA') {
+      // CF formato invalido
+      if (r.p_cf && !CF_REGEX.test(String(r.p_cf))) {
+        warnings.push({ nodoId: id, tipo, label, field: `CF formato invalido (${r.p_cf})`, severity: 'warning' })
+      }
+
+      // Fte mancante o fuori range
+      if (isEmpty(r.fte)) {
+        warnings.push({ nodoId: id, tipo, label, field: 'Fte mancante', severity: 'warning' })
+      } else {
+        const fte = parseFloat(String(r.fte))
+        if (isNaN(fte) || fte < 0 || fte > 1) {
+          warnings.push({ nodoId: id, tipo, label, field: `Fte fuori range (${r.fte})`, severity: 'warning' })
+        }
+      }
+
+      // Sede valorizzata con Sede 2 vuota
+      if (!isEmpty(r.n_sede) && isEmpty(r.p_sede)) {
+        warnings.push({ nodoId: id, tipo, label, field: 'Sede senza Sede 2', severity: 'warning' })
+      }
+
+      // Campi obbligatori persona
       if (!r.p_cf) {
-        errors.push({ nodoId: String(r.id), tipo: 'PERSONA', label, field: 'TxCodFiscale', severity: 'error' })
+        errors.push({ nodoId: id, tipo, label, field: 'TxCodFiscale', severity: 'error' })
       }
       for (const { field, key } of PERSONA_REQUIRED) {
         if (isEmpty(r[key])) {
-          errors.push({ nodoId: String(r.id), tipo: 'PERSONA', label, field, severity: 'error' })
+          errors.push({ nodoId: id, tipo, label, field, severity: 'error' })
         }
       }
       for (const { field, key } of PERSONA_WARNINGS) {
         if (isEmpty(r[key])) {
-          warnings.push({ nodoId: String(r.id), tipo: 'PERSONA', label, field, severity: 'warning' })
+          warnings.push({ nodoId: id, tipo, label, field, severity: 'warning' })
         }
       }
-      // reports_to required unless root (no parent at all means root)
       if (isEmpty(r.reports_to)) {
-        warnings.push({ nodoId: String(r.id), tipo: 'PERSONA', label, field: 'ReportsTo', severity: 'warning' })
+        warnings.push({ nodoId: id, tipo, label, field: 'ReportsTo', severity: 'warning' })
       }
     } else if (r.tipo_nodo === 'STRUTTURA') {
       for (const { field, key } of STRUTTURA_REQUIRED) {
         if (isEmpty(r[key])) {
-          errors.push({ nodoId: String(r.id), tipo: 'STRUTTURA', label, field, severity: 'error' })
+          errors.push({ nodoId: id, tipo, label, field, severity: 'error' })
         }
       }
     }

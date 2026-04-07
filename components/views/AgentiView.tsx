@@ -1,9 +1,28 @@
 'use client'
-import React, { useCallback, useRef, useState } from 'react'
-import { Upload, FileText, MessageSquare, Loader2, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react'
+import React, { useCallback, useRef, useState, useEffect } from 'react'
+import { Upload, FileText, MessageSquare, Loader2, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useHRStore } from '@/store/useHRStore'
 import type { OrdineServizioAnalysis, OrdineServizioProposal, ProposalTipo } from '@/types'
+
+const DRAFT_KEY = 'ordine-servizio-draft'
+
+function saveDraft(analysis: OrdineServizioAnalysis) {
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ analysis, savedAt: Date.now() })) } catch {}
+}
+function loadDraft(): { analysis: OrdineServizioAnalysis; savedAt: number } | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    // Discard drafts older than 4 hours
+    if (Date.now() - parsed.savedAt > 4 * 60 * 60 * 1000) { localStorage.removeItem(DRAFT_KEY); return null }
+    return parsed
+  } catch { return null }
+}
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT_KEY) } catch {}
+}
 
 type Mode = 'documento' | 'prompt'
 type Phase = 'input' | 'loading' | 'proposte' | 'done'
@@ -82,7 +101,10 @@ export default function AgentiView() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [applying, setApplying] = useState(false)
   const [result, setResult] = useState<{ applied: number; errors: string[] } | null>(null)
+  const [draft, setDraft] = useState<{ analysis: OrdineServizioAnalysis; savedAt: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { setDraft(loadDraft()) }, [])
 
   const canAnalyze = mode === 'documento' ? !!file : promptText.trim().length > 0
 
@@ -102,6 +124,8 @@ export default function AgentiView() {
         file: mode === 'documento' ? file ?? undefined : undefined,
         prompt: mode === 'prompt' ? promptText : undefined,
       })
+      saveDraft(result)
+      setDraft(null)
       setAnalysis(result)
       setSelected(new Set(result.proposte.map(p => p.id)))
       setPhase('proposte')
@@ -109,6 +133,14 @@ export default function AgentiView() {
       setPhase('input')
       showToast(`Errore analisi: ${err instanceof Error ? err.message : String(err)}`, 'error')
     }
+  }
+
+  const restoreDraft = () => {
+    if (!draft) return
+    setAnalysis(draft.analysis)
+    setSelected(new Set(draft.analysis.proposte.map(p => p.id)))
+    setDraft(null)
+    setPhase('proposte')
   }
 
   const apply = async () => {
@@ -133,12 +165,14 @@ export default function AgentiView() {
   }
 
   const reset = () => {
+    clearDraft()
     setPhase('input')
     setFile(null)
     setPromptText('')
     setAnalysis(null)
     setSelected(new Set())
     setResult(null)
+    setDraft(null)
   }
 
   if (phase === 'loading') {
@@ -248,6 +282,27 @@ export default function AgentiView() {
           <h1 className="text-lg font-semibold text-slate-200">Ordine di Servizio AI</h1>
           <p className="text-sm text-slate-500 mt-1">Carica un documento o inserisci un prompt per generare proposte di modifica al DB.</p>
         </div>
+
+        {draft && (
+          <div className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-lg px-4 py-3">
+            <RotateCcw className="w-4 h-4 text-amber-400 flex-none" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-amber-200 font-medium">Analisi precedente disponibile</p>
+              <p className="text-xs text-amber-400 mt-0.5">
+                {draft.analysis.proposte.length} proposte salvate — {new Date(draft.savedAt).toLocaleTimeString('it-IT')}
+              </p>
+            </div>
+            <button
+              onClick={restoreDraft}
+              className="text-xs bg-amber-700/40 hover:bg-amber-700/60 text-amber-200 px-3 py-1.5 rounded transition-colors"
+            >
+              Ripristina
+            </button>
+            <button onClick={() => { clearDraft(); setDraft(null) }} className="text-amber-600 hover:text-amber-400 text-xs">
+              Ignora
+            </button>
+          </div>
+        )}
 
         <div className="flex border-b border-slate-700">
           {(['documento', 'prompt'] as Mode[]).map(m => (

@@ -6,6 +6,16 @@ import { useHRStore } from '@/store/useHRStore'
 import { api } from '@/lib/api'
 import ConfirmDialog from './ConfirmDialog'
 
+type Enums = Record<string, string[]>
+
+function useEnums() {
+  const [enums, setEnums] = useState<Enums>({})
+  useEffect(() => {
+    fetch('/api/enums').then(r => r.json()).then(setEnums).catch(() => {})
+  }, [])
+  return enums
+}
+
 type Mode = 'view' | 'edit' | 'create'
 type RecordType = 'nodo' | 'persona'
 
@@ -60,6 +70,31 @@ function FieldInput({ label, fieldKey, form, setForm, readOnly }: {
   )
 }
 
+function FieldSelect({ label, fieldKey, options, form, setForm }: {
+  label: string
+  fieldKey: string
+  options: string[]
+  form: Record<string, string>
+  setForm: React.Dispatch<React.SetStateAction<Record<string, string>>>
+}) {
+  const current = form[fieldKey] ?? ''
+  // Include current value even if not in options list (data entry before normalization)
+  const opts = current && !options.includes(current) ? [current, ...options] : options
+  return (
+    <div>
+      <label className="text-xs text-slate-500 mb-1 block">{label}</label>
+      <select
+        className="w-full px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded-md text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        value={current}
+        onChange={e => setForm(f => ({ ...f, [fieldKey]: e.target.value }))}
+      >
+        <option value="">—</option>
+        {opts.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  )
+}
+
 const TIPO_NODO_OPTS = ['STRUTTURA', 'PERSONA', 'ANOMALIA']
 
 export default function RecordDrawer({
@@ -72,6 +107,7 @@ export default function RecordDrawer({
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [suggestingId, setSuggestingId] = useState(false)
   const { showToast, refreshAll, persone } = useHRStore()
+  const enums = useEnums()
 
   // Persona collegata (solo per nodi con cf_persona)
   const linkedPersona: Persona | null = type === 'nodo' && record
@@ -274,10 +310,10 @@ export default function RecordDrawer({
       <p className={SL}>Dettagli</p>
       {mode !== 'view' ? (
         <div className="space-y-2">
-          <FieldInput label="Sede" fieldKey="sede" form={form} setForm={setForm} />
-          <FieldInput label="Società Org" fieldKey="societa_org" form={form} setForm={setForm} />
-          <FieldInput label="Testata GG" fieldKey="testata_gg" form={form} setForm={setForm} />
-          <FieldInput label="Tipo Collab" fieldKey="tipo_collab" form={form} setForm={setForm} />
+          {enums.sede_nodo?.length ? <FieldSelect label="Sede" fieldKey="sede" options={enums.sede_nodo} form={form} setForm={setForm} /> : <FieldInput label="Sede" fieldKey="sede" form={form} setForm={setForm} />}
+          {enums.societa_org?.length ? <FieldSelect label="Società Org" fieldKey="societa_org" options={enums.societa_org} form={form} setForm={setForm} /> : <FieldInput label="Società Org" fieldKey="societa_org" form={form} setForm={setForm} />}
+          {enums.testata_gg?.length ? <FieldSelect label="Testata GG" fieldKey="testata_gg" options={enums.testata_gg} form={form} setForm={setForm} /> : <FieldInput label="Testata GG" fieldKey="testata_gg" form={form} setForm={setForm} />}
+          {enums.tipo_collab?.length ? <FieldSelect label="Tipo Collab" fieldKey="tipo_collab" options={enums.tipo_collab} form={form} setForm={setForm} /> : <FieldInput label="Tipo Collab" fieldKey="tipo_collab" form={form} setForm={setForm} />}
           <FieldInput label="Incarico SGSL" fieldKey="incarico_sgsl" form={form} setForm={setForm} />
           <FieldInput label="Note UO" fieldKey="note_uo" form={form} setForm={setForm} />
         </div>
@@ -318,10 +354,10 @@ export default function RecordDrawer({
       <p className={SL}>Contratto</p>
       {mode !== 'view' ? (
         <div className="space-y-2">
-          <FieldInput label="Società" fieldKey="societa" form={form} setForm={setForm} />
-          <FieldInput label="Area" fieldKey="area" form={form} setForm={setForm} />
-          <FieldInput label="Qualifica" fieldKey="qualifica" form={form} setForm={setForm} />
-          <FieldInput label="Tipo Contratto" fieldKey="tipo_contratto" form={form} setForm={setForm} />
+          {enums.societa?.length ? <FieldSelect label="Società" fieldKey="societa" options={enums.societa} form={form} setForm={setForm} /> : <FieldInput label="Società" fieldKey="societa" form={form} setForm={setForm} />}
+          {enums.area?.length ? <FieldSelect label="Area" fieldKey="area" options={enums.area} form={form} setForm={setForm} /> : <FieldInput label="Area" fieldKey="area" form={form} setForm={setForm} />}
+          {enums.qualifica?.length ? <FieldSelect label="Qualifica" fieldKey="qualifica" options={enums.qualifica} form={form} setForm={setForm} /> : <FieldInput label="Qualifica" fieldKey="qualifica" form={form} setForm={setForm} />}
+          {enums.tipo_contratto?.length ? <FieldSelect label="Tipo Contratto" fieldKey="tipo_contratto" options={enums.tipo_contratto} form={form} setForm={setForm} /> : <FieldInput label="Tipo Contratto" fieldKey="tipo_contratto" form={form} setForm={setForm} />}
           <FieldInput label="Data Assunzione" fieldKey="data_assunzione" form={form} setForm={setForm} />
         </div>
       ) : (
@@ -337,8 +373,9 @@ export default function RecordDrawer({
       <p className={SL}>Presenza</p>
       {mode !== 'view' ? (
         <div className="space-y-2">
-          <FieldInput label="Modalità Presenze" fieldKey="modalita_presenze" form={form} setForm={setForm} />
-          <FieldInput label="Sede" fieldKey="sede" form={form} setForm={setForm} />
+          <FieldSelect label="Sesso" fieldKey="sesso" options={enums.sesso ?? ['M', 'F']} form={form} setForm={setForm} />
+          <FieldSelect label="Modalità Presenze" fieldKey="modalita_presenze" options={enums.modalita_presenze ?? ['F', 'T', 'E']} form={form} setForm={setForm} />
+          {enums.sede?.length ? <FieldSelect label="Sede" fieldKey="sede" options={enums.sede} form={form} setForm={setForm} /> : <FieldInput label="Sede" fieldKey="sede" form={form} setForm={setForm} />}
           <FieldInput label="CdC Amministrativo" fieldKey="cdc_amministrativo" form={form} setForm={setForm} />
         </div>
       ) : (

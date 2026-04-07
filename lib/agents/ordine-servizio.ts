@@ -7,81 +7,35 @@ export interface DbContext {
   struttureTns: { codice: string; nome: string; padre?: string }[]
 }
 
-const SYSTEM_PROMPT = `Sei un assistente esperto di risorse umane e organizzazione aziendale del Gruppo Il Sole 24 Ore.
-Analizzi documenti organizzativi (ordini di servizio, circolari HR, delibere) e produci proposte strutturate di modifiche al database HR.
+// Compact prompt for short/simple requests (< 500 chars). Minimal schema, only relevant tables.
+const SYSTEM_PROMPT_COMPACT = `Sei un assistente HR. Leggi il testo e produci SOLO JSON valido (niente markdown).
 
-## Schema DB (semplificato)
+Tabelle DB:
+- persone: cf(PK), cognome, nome, societa, area, sede, qualifica, livello, email, data_assunzione, data_fine_rapporto
+- nodi_organigramma: id(PK), reports_to, tipo_nodo, cf_persona, nome_uo
+- ruoli_tns: cf_persona(PK), approvatore, viaggiatore, cassiere, segretario, controllore, visualizzatore, codice_tns, padre_tns, livello_tns, sede_tns, cdc_tns
+- strutture_tns: codice(PK), nome, padre, livello, titolare, cf_titolare
 
-**persone** — anagrafica dipendenti
-- cf (TEXT, PK) — codice fiscale, chiave universale
-- cognome, nome, data_nascita, sesso, email
-- societa, area, sotto_area, cdc_amministrativo, sede
-- data_assunzione, data_fine_rapporto, tipo_contratto, qualifica, livello
-- modalita_presenze, part_time, ral, matricola
+Tipi operazione: INSERT_PERSONA, UPDATE_PERSONA, DELETE_PERSONA, INSERT_NODO, UPDATE_NODO, REPARENT_NODO, UPDATE_RUOLO_TNS, INSERT_STRUTTURA_TNS, UPDATE_STRUTTURA_TNS
 
-**nodi_organigramma** — struttura organizzativa
-- id (TEXT, PK)
-- reports_to (TEXT) — id del nodo padre
-- tipo_nodo: 'STRUTTURA' | 'PERSONA' | 'ANOMALIA'
-- cf_persona — se tipo_nodo = 'PERSONA'
-- nome_uo, nome_uo_2, centro_costo, fte, job_title
-- funzione, processo, incarico_sgsl, societa_org, testata_gg, sede
-- tipo_collab
+Regole: entityId=CF per persone/ruoli_tns; "data" contiene SOLO i campi da modificare; se CF non noto lascia entityId vuoto e aggiungi avvertenza; confidence: high/medium/low.
 
-**ruoli_tns** — ruoli sistema rimborsi spese
-- cf_persona (PK) — codice fiscale
-- codice_tns, padre_tns, livello_tns, titolare_tns
-- tipo_approvatore, codice_approvatore
-- viaggiatore, approvatore, cassiere, segretario, controllore, amministrazione, visualizzatore
-- sede_tns, cdc_tns
+Rispondi SOLO con: {"sommario":"...","proposte":[{"id":"uuid","tipo":"...","label":"...","rationale":"...","confidence":"...","entityType":"...","entityId":"...","entityLabel":"...","data":{...}}],"avvertenze":[]}`
 
-**strutture_tns** — struttura organizzativa TNS (sistema rimborsi)
-- codice (PK)
-- nome, padre, livello, tipo, attivo, cdc, titolare, cf_titolare, sede_tns
+// Full prompt for documents / long texts
+const SYSTEM_PROMPT_FULL = `Sei un assistente HR per il Gruppo Il Sole 24 Ore. Analizzi documenti e produci proposte di modifica DB. Rispondi SOLO con JSON valido, niente markdown.
 
-## Tipi di operazione ammessi
+Tabelle:
+- persone: cf(PK), cognome, nome, data_nascita, sesso, email, societa, area, sotto_area, cdc_amministrativo, sede, data_assunzione, data_fine_rapporto, tipo_contratto, qualifica, livello, modalita_presenze, part_time, ral, matricola
+- nodi_organigramma: id(PK), reports_to, tipo_nodo(STRUTTURA|PERSONA|ANOMALIA), cf_persona, nome_uo, nome_uo_2, centro_costo, fte, job_title, funzione, processo, societa_org, testata_gg, sede
+- ruoli_tns: cf_persona(PK), codice_tns, padre_tns, livello_tns, titolare_tns, tipo_approvatore, codice_approvatore, viaggiatore, approvatore, cassiere, segretario, controllore, amministrazione, visualizzatore, sede_tns, cdc_tns
+- strutture_tns: codice(PK), nome, padre, livello, tipo, attivo, cdc, titolare, cf_titolare, sede_tns
 
-- INSERT_PERSONA: nuova assunzione/inserimento persona
-- UPDATE_PERSONA: aggiornamento campi persona esistente
-- DELETE_PERSONA: cessazione rapporto (soft delete)
-- INSERT_NODO: nuova unità organizzativa
-- UPDATE_NODO: modifica campi nodo
-- REPARENT_NODO: spostamento organizzativo (cambio reports_to)
-- UPDATE_RUOLO_TNS: aggiornamento ruoli TNS persona
-- INSERT_STRUTTURA_TNS: nuova struttura TNS
-- UPDATE_STRUTTURA_TNS: aggiornamento struttura TNS
+Operazioni: INSERT_PERSONA, UPDATE_PERSONA, DELETE_PERSONA(data={deleted_at:"now"}), INSERT_NODO, UPDATE_NODO, REPARENT_NODO(data={reports_to:"..."}), UPDATE_RUOLO_TNS, INSERT_STRUTTURA_TNS, UPDATE_STRUTTURA_TNS
 
-## Regole
+Regole: CF=chiave universale; entityId=CF per persone/ruoli; "data"=solo campi da modificare; non inventare CF; confidence=high/medium/low.
 
-1. Restituisci SOLO JSON valido, nessun testo aggiuntivo, nessun markdown
-2. Il CF (codice fiscale) è la chiave universale — se non esplicitato nel documento, lascia entityId vuoto e inserisci avvertenza
-3. Non inventare CF — se ambiguo, usa confidence='low' e inserisci in avvertenze
-4. Per ogni proposta assegna un id UUID v4 deterministico univoco
-5. entityId per persona = CF, per nodo = id nodo, per struttura TNS = codice
-6. Il campo "data" contiene SOLO i campi da modificare/inserire (non tutti i campi)
-7. Per DELETE_PERSONA: data = { deleted_at: "now" }
-8. Per REPARENT_NODO: data = { reports_to: "<nuovo_id_padre>" }
-9. confidence: 'high' = entità identificata con certezza, 'medium' = probabile match, 'low' = ambiguo
-
-## Formato risposta JSON
-
-{
-  "sommario": "...",
-  "proposte": [
-    {
-      "id": "uuid-v4",
-      "tipo": "...",
-      "label": "...",
-      "rationale": "...",
-      "confidence": "high|medium|low",
-      "entityType": "persona|nodo|ruolo_tns|struttura_tns",
-      "entityId": "...",
-      "entityLabel": "...",
-      "data": { ... }
-    }
-  ],
-  "avvertenze": ["..."]
-}`
+Formato: {"sommario":"...","proposte":[{"id":"uuid","tipo":"...","label":"...","rationale":"...","confidence":"...","entityType":"...","entityId":"...","entityLabel":"...","data":{}}],"avvertenze":[]}`
 
 function getClient() {
   const baseURL = process.env.AI_BASE_URL
@@ -97,52 +51,53 @@ export async function analyzeOrdineServizio(text: string, ctx: DbContext): Promi
   const client = getClient()
   const model = getModel()
 
-  const personeList = ctx.persone
-    .map(p => `${p.cf} — ${p.cognome} ${p.nome}${p.societa ? ` (${p.societa})` : ''}`)
-    .join('\n')
+  const isShort = text.length < 500
 
-  const nodiList = ctx.nodi
-    .map(n => `${n.id} — ${n.nome_uo}${n.reports_to ? ` (riporta a: ${n.reports_to})` : ''}`)
-    .join('\n')
+  // Build context block only for long texts (documents)
+  let contextBlock = ''
+  if (!isShort) {
+    const persone = ctx.persone.slice(0, 200)
+      .map(p => `${p.cf} — ${p.cognome} ${p.nome}`)
+      .join('\n')
+    const nodi = ctx.nodi.slice(0, 100)
+      .map(n => `${n.id} — ${n.nome_uo}`)
+      .join('\n')
+    contextBlock = persone || nodi
+      ? `\nContesto DB:\n${persone ? `Persone:\n${persone}\n` : ''}${nodi ? `Nodi:\n${nodi}` : ''}`
+      : ''
+  } else if (ctx.persone.length > 0) {
+    // Short prompt: only pass the matched person(s)
+    const matched = ctx.persone.map(p => `${p.cf} — ${p.cognome} ${p.nome}`).join('\n')
+    contextBlock = `\nPersone trovate in DB:\n${matched}`
+  }
 
-  const struttureTnsList = ctx.struttureTns
-    .map(s => `${s.codice} — ${s.nome}${s.padre ? ` (padre: ${s.padre})` : ''}`)
-    .join('\n')
+  const systemPrompt = isShort ? SYSTEM_PROMPT_COMPACT : SYSTEM_PROMPT_FULL
+  const userPrompt = `${text}${contextBlock}`
 
-  const userPrompt = `## Documento da analizzare
+  const callWithRetry = async (retries = 3, delayMs = 12000) => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        return await client.chat.completions.create({
+          model,
+          max_tokens: isShort ? 1024 : 4096,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+        })
+      } catch (err) {
+        const msg = String(err)
+        if ((msg.includes('429') || msg.includes('503')) && attempt < retries) {
+          await new Promise(r => setTimeout(r, delayMs * attempt))
+          continue
+        }
+        throw err
+      }
+    }
+    throw new Error('Max retry reached')
+  }
 
-${text}
-
----
-
-## Persone attualmente in DB (CF — Cognome Nome)
-
-${personeList || '(nessuna persona in DB)'}
-
----
-
-## Nodi organigramma attualmente in DB (ID — Nome UO)
-
-${nodiList || '(nessun nodo in DB)'}
-
----
-
-## Strutture TNS attualmente in DB (Codice — Nome)
-
-${struttureTnsList || '(nessuna struttura TNS in DB)'}
-
----
-
-Analizza il documento e produci le proposte di modifica al DB. Restituisci SOLO JSON valido.`
-
-  const response = await client.chat.completions.create({
-    model,
-    max_tokens: 4096,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: userPrompt },
-    ],
-  })
+  const response = await callWithRetry()
 
   let jsonText = (response.choices[0]?.message?.content ?? '').trim()
   if (jsonText.startsWith('```')) {
