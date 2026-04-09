@@ -84,6 +84,7 @@ export default function TnsCanvas() {
   const [groupByName, setGroupByName] = useState(false)
   const [leafListMode, setLeafListMode] = useState(false)
   const [showFieldsPanel, setShowFieldsPanel] = useState(false)
+  const [visualMode, setVisualMode] = useState<'flow' | 'cards'>('flow')
   const [showSenzaPadre, setShowSenzaPadre] = useState(false)
   const [senzaPadreSearch, setSenzaPadreSearch] = useState('')
   const [leftPanelWidth, setLeftPanelWidth] = useState(240)
@@ -234,35 +235,15 @@ export default function TnsCanvas() {
     const metrics = analyzeTree(root)
 
     let vGap = 130
-    if (leafListMode || groupByName) {
-      const childrenOfId = new Map<string, string[]>()
-      groupedResult.forEach(s => {
-        if (s.padre) {
-          if (!childrenOfId.has(s.padre)) childrenOfId.set(s.padre, [])
-          childrenOfId.get(s.padre)!.push(s.codice)
-        }
-      })
-      let maxNodeHeight = 80
-      if (leafListMode) {
-        childrenOfId.forEach(children => {
-          if (children.every(c => !childrenOfId.has(c))) {
-            const listH = Math.min(children.length * 22 + 20, 212)
-            maxNodeHeight = Math.max(maxNodeHeight, 80 + listH)
-          }
-        })
-      }
-      if (groupByName) {
-        groupedMap.forEach(g => {
-          const listH = Math.min(g.length * 20 + 10, 154)
-          maxNodeHeight = Math.max(maxNodeHeight, 80 + listH)
-        })
-      }
-      vGap = Math.max(130, maxNodeHeight + 20)
-    }
+    
+    // Rimosso lo sbalzo dinamico del vGap con leafListMode/groupByName.
+    // L'algoritmo di layout ad albero standard assicura che una foglia ampliata
+    // abbia campo libero sotto di sé per espandersi senza collidere.
+
 
     const cfg: LayoutConfig = {
       gridCols: metrics.dynamicGridCols,
-      verticalStackingDepth: metrics.useVerticalStacking ? 7 : null,
+      verticalStackingDepth: visualMode === 'cards' ? 1 : (metrics.useVerticalStacking ? 7 : null),
       forcedVerticalNodes: new Set(),
       vGap,
     }
@@ -597,6 +578,9 @@ export default function TnsCanvas() {
             semanticStatus: semanticStatusMap.get(codice),
             entranceDelay, compact: compactMode,
             isAncestor: drillAncestorSet.has(codice),
+            viewStyle: visualMode === 'cards' ? 'cards' : 'standard',
+            isStacked: tn.depth >= 1 && visualMode === 'cards',
+            livello: undefined, fts: s?.ruoli,
             onExpand: () => toggleCollapse(codice),
             onExpandOverflow: () => {},
             onOpenDrawer: gpList ? () => {} : () => openDrawer(codice),
@@ -677,12 +661,12 @@ export default function TnsCanvas() {
   }, [nodes, dragTargetId, dragResetKey])
 
   useEffect(() => {
-    if (nodes.length > 0) setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 100)
+    if (nodes.length > 0) setTimeout(() => fitView({ padding: 0.1, duration: 400, minZoom: 0.3 }), 100)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered, drillRootId])
 
   useEffect(() => {
-    setTimeout(() => fitView({ padding: 0.15, duration: 300 }), 50)
+    setTimeout(() => fitView({ padding: 0.1, duration: 300, minZoom: 0.25 }), 50)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawerOpen])
 
@@ -708,14 +692,14 @@ export default function TnsCanvas() {
   const handleFocusExpand = useCallback((nodeId: string) => {
     drillInto(nodeId, 'expand', () => {
       setCollapsedSet(new Set())
-      setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
+      setTimeout(() => fitView({ padding: 0.1, duration: 400, minZoom: 0.3 }), 50)
     })
   }, [drillInto, fitView])
 
   const handleDrillIn = useCallback((nodeId: string) => {
     drillInto(nodeId, 'navigate', () => {
       setCollapsedSet(new Set())
-      setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
+      setTimeout(() => fitView({ padding: 0.1, duration: 400, minZoom: 0.3 }), 50)
     })
   }, [drillInto, fitView])
 
@@ -765,8 +749,28 @@ export default function TnsCanvas() {
     <div className="flex flex-col h-full">
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 py-2 bg-slate-900 border-b border-slate-700 flex-wrap">
+        {/* Toggle Visualità come Posizioni */}
+        <div className="flex bg-slate-800 p-0.5 rounded-md border border-slate-700">
+          <button
+            onClick={() => setVisualMode('flow')}
+            className={`px-3 py-1 text-xs rounded-sm transition-colors ${
+              visualMode === 'flow' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+            }`}
+          >
+            Organigramma
+          </button>
+          <button
+            onClick={() => { setVisualMode('cards'); setTimeout(() => fitView({ padding: 0.1, duration: 400 }), 100) }}
+            className={`px-3 py-1 text-xs rounded-sm transition-colors ${
+              visualMode === 'cards' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+            }`}
+          >
+            Vista schede
+          </button>
+        </div>
+
         {/* 1. Search */}
-        <div className="relative">
+        <div className="relative border-l border-slate-700 pl-3">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
           <input
             type="text" placeholder="Cerca struttura TNS..."
@@ -821,22 +825,38 @@ export default function TnsCanvas() {
         {/* 5. Drill breadcrumb */}
         {drillRootId && (
           <div className="flex items-center gap-0.5 text-sm">
-            {drillBreadcrumb.map((item, idx) => (
-              <React.Fragment key={idx}>
-                {idx > 0 && <span className="text-slate-600 mx-0.5">/</span>}
-                <button
-                  onClick={() => drillTo(item.id, () => { setCollapsedSet(new Set()); setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50) })}
-                  className={[
-                    'px-1.5 py-0.5 rounded transition-colors max-w-[120px] truncate',
-                    idx === drillBreadcrumb.length - 1
-                      ? 'text-slate-200 font-medium cursor-default'
-                      : 'text-indigo-400 hover:text-indigo-200 hover:bg-slate-700'
-                  ].join(' ')}
-                >
-                  {item.label}
-                </button>
-              </React.Fragment>
-            ))}
+            {(() => {
+              let items = drillBreadcrumb.map((item, idx) => ({ ...item, isLast: idx === drillBreadcrumb.length - 1, isEllipsis: false }))
+              if (items.length > 4) {
+                items = [
+                  items[0],
+                  { id: 'ellipsis', label: '...', isLast: false, isEllipsis: true } as any,
+                  ...items.slice(-2)
+                ]
+              }
+
+              return items.map((item, idx) => (
+                <React.Fragment key={item.id}>
+                  {idx > 0 && <span className="text-slate-600 mx-0.5">/</span>}
+                  {item.isEllipsis ? (
+                    <span className="text-slate-500 font-medium px-1 cursor-default" title={`Livelli intermedi nascosti`}>...</span>
+                  ) : (
+                    <button
+                      onClick={() => drillTo(item.id, () => { setCollapsedSet(new Set()); setTimeout(() => fitView({ padding: 0.1, duration: 400, minZoom: 0.3 }), 50) })}
+                      className={[
+                        'px-1.5 py-0.5 rounded transition-colors max-w-[120px] truncate',
+                        item.isLast
+                          ? 'text-slate-200 font-medium cursor-default'
+                          : 'text-indigo-400 hover:text-indigo-200 hover:bg-slate-700'
+                      ].join(' ')}
+                      title={item.label}
+                    >
+                      {item.label}
+                    </button>
+                  )}
+                </React.Fragment>
+              ))
+            })()}
           </div>
         )}
 
@@ -854,7 +874,8 @@ export default function TnsCanvas() {
           {dragEditMode ? '✎ Modifica attiva' : '✎ Modifica struttura'}
         </button>
 
-        {/* 7. Nuova struttura */}
+
+        {/* Nuova struttura */}
         <button
           onClick={() => { setCreateCodice(''); setCreateNome(''); setCreateModal({ padre: null }) }}
           className="flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md border border-green-700 text-green-400 hover:bg-green-900/20 transition-colors"
@@ -1022,8 +1043,8 @@ export default function TnsCanvas() {
           <ReactFlow
             nodes={derivedNodes} edges={edges}
             nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES}
-            fitView fitViewOptions={{ padding: 0.15 }}
-            minZoom={0.1} maxZoom={2}
+            fitView fitViewOptions={{ padding: 0.1 }}
+            minZoom={0.65} maxZoom={1.5}
             proOptions={{ hideAttribution: true }}
             nodesDraggable={dragEditMode}
             onNodeClick={dragEditMode ? undefined : handleNodeClick}

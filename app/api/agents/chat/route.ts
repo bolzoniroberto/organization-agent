@@ -44,7 +44,10 @@ export async function POST(req: Request) {
 
     // Save assistant response
     const assistantMsgId = crypto.randomUUID()
-    const metadata = result.toolCalls ? JSON.stringify({ toolCalls: result.toolCalls }) : null
+    const metaObj: Record<string, unknown> = {}
+    if (result.toolCalls) metaObj.toolCalls = result.toolCalls
+    if (result.proposals) metaObj.proposals = result.proposals
+    const metadata = Object.keys(metaObj).length > 0 ? JSON.stringify(metaObj) : null
     db().prepare(`
       INSERT INTO agent_chat_messages (id, role, content, metadata) VALUES (?, 'assistant', ?, ?)
     `).run(assistantMsgId, result.response, metadata)
@@ -52,6 +55,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       response: result.response,
       toolCalls: result.toolCalls,
+      proposals: result.proposals,
       messageId: assistantMsgId,
     })
   } catch (err) {

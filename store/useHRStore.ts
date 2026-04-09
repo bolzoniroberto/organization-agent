@@ -11,6 +11,11 @@ interface HRStore {
   setActiveSection: (s: ActiveSection) => void
   setActiveView: (v: ActiveView) => void
 
+  companyName: string
+  platformName: string
+  loadSettings: () => Promise<void>
+  saveSetting: (key: string, value: string) => Promise<void>
+
   nodi: NodoOrganigramma[]
   persone: Persona[]
   timesheet: SupervisioneTimesheet[]
@@ -44,6 +49,25 @@ export const useHRStore = create<HRStore>((set, get) => ({
   activeView: 'posizioni',
   setActiveSection: (s) => set({ activeSection: s }),
   setActiveView: (v) => set({ activeView: v }),
+
+  companyName: 'Sole 24 Ore',
+  platformName: 'HR Platform',
+
+  loadSettings: async () => {
+    try {
+      const { settings } = await api.settings.get()
+      const updates: Partial<HRStore> = {}
+      if (settings['company_name']) updates.companyName = settings['company_name']
+      if (settings['platform_name']) updates.platformName = settings['platform_name']
+      if (Object.keys(updates).length > 0) set(updates)
+    } catch {}
+  },
+
+  saveSetting: async (key: string, value: string) => {
+    await api.settings.set(key, value)
+    if (key === 'company_name') set({ companyName: value })
+    if (key === 'platform_name') set({ platformName: value })
+  },
 
   nodi: [],
   persone: [],
@@ -114,6 +138,7 @@ export const useHRStore = create<HRStore>((set, get) => ({
         api.variabili.listValori(),
       ])
       set({ nodi, persone, timesheet, struttureTns, counts, variabiliDef, variabiliValori })
+      get().loadSettings()
     } finally {
       set({ loading: false })
     }

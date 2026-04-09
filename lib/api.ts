@@ -322,7 +322,7 @@ export const api = {
       history: (limit = 50): Promise<{ messages: { id: string; role: string; content: string; metadata?: string; created_at: string }[] }> =>
         fetch(u(`/api/agents/chat?limit=${limit}`)).then(r => json(r)),
 
-      send: (message: string): Promise<{ response: string; toolCalls?: { name: string; input: string; output: string }[]; messageId: string }> =>
+      send: (message: string): Promise<{ response: string; toolCalls?: { name: string; input: string; output: string }[]; proposals?: OrdineServizioProposal[]; messageId: string }> =>
         fetch(u('/api/agents/chat'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -376,6 +376,28 @@ export const api = {
         URL.revokeObjectURL(url)
       },
     },
+  },
+
+  settings: {
+    get: (): Promise<{ settings: Record<string, string> }> =>
+      fetch(u('/api/settings')).then(r => json(r)),
+
+    set: (key: string, value: string): Promise<{ success: boolean }> =>
+      fetch(u('/api/settings'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value }),
+      }).then(r => json(r)),
+
+    discrete: (): Promise<{ fields: { table: string; field: string; label: string; entity: string; values: string[] }[] }> =>
+      fetch(u('/api/settings/discrete')).then(r => json(r)),
+
+    renameDiscreteValue: (table: string, field: string, old_value: string, new_value: string): Promise<{ updated: number; error?: string }> =>
+      fetch(u('/api/settings/discrete/rename'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table, field, old_value, new_value }),
+      }).then(r => json(r)),
   },
 
   import: {

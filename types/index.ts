@@ -76,6 +76,24 @@ export interface Persona {
   ruoli_hr: string | null
   altri_ruoli: string | null
   gruppo_sind: string | null
+  // === Campi Payroll ===
+  data_assunzione_gruppo: string | null
+  codice_posizione: string | null
+  desc_posizione: string | null
+  tipo_contratto_termine: string | null
+  data_scadenza_ct: string | null
+  codice_parttime: string | null
+  data_decorrenza_parttime: string | null
+  data_scadenza_parttime: string | null
+  categoria_protetta: string | null
+  azienda_provenienza: string | null
+  area_livello3: string | null
+  tipo_orario: string | null
+  sw_tipologia: string | null
+  sw_scadenza: string | null
+  cittadinanza: string | null
+  desc_contratto: string | null
+  codice_sede: string | null
 }
 
 export interface SupervisioneTimesheet {
@@ -186,7 +204,7 @@ export interface StrutturaTns {
   person_count?: number
 }
 
-export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico' | 'data-cleaning' | 'db-live' | 'agenti' | 'accordion' | 'dashboard' | 'esportazioni'
+export type ActiveSection = 'organigramma' | 'masterdata' | 'import' | 'storico' | 'data-cleaning' | 'db-live' | 'agenti' | 'accordion' | 'dashboard' | 'esportazioni' | 'impostazioni'
 export type ActiveView = 'posizioni' | 'persone-ts' | 'tns' | 'nodi' | 'persone' | 'ruoli-tns' | 'strutture-tns' | 'variabili' | 'bulk' | 'enrich' | 'scheda-movimento' | 'verifica-dipendenti' | 'dc-duplicati' | 'dc-bulk-edit' | 'dc-merge' | 'ordine-servizio' | 'accordion-uo' | 'accordion-tns' | 'accordion-responsabili'
 
 export type ProposalTipo =
@@ -210,6 +228,7 @@ export interface OrdineServizioProposal {
   entityId?: string
   entityLabel?: string
   data: Record<string, unknown>
+  currentValues?: Record<string, unknown>
 }
 
 export interface OrdineServizioAnalysis {

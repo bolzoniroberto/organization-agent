@@ -280,7 +280,7 @@ export default function PosizioniCanvas() {
   const [colorMode, setColorMode] = usePersistedState<ColorMode>('orgchart:posizioni:colorMode', 'none')
   const [nodeFields, setNodeFields] = usePersistedState<[string, string, string]>('orgchart:posizioni:nodeFields', ['nome_uo', 'cf_persona', ''])
   const [viewMode, setViewMode] = useState<'tree' | 'sede'>('tree')
-  const [visualMode, setVisualMode] = useState<'flow' | 'treemap'>('flow')
+  const [visualMode, setVisualMode] = useState<'flow' | 'treemap' | 'cards'>('flow')
   const [sedeFiltro, setSedeFiltro] = useState<string>('all')
   const [focusedNode, setFocusedNode] = useState<string | null>(null)
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
@@ -503,37 +503,16 @@ export default function PosizioniCanvas() {
 
     // ── Dynamic vGap: prevent overlap when nodes are taller than default ────────
     const activeFields = nodeFields.filter(Boolean).length
-    let vGap = 150 + (activeFields > 1 ? (activeFields - 1) * 15 : 0)
-    if (leafListMode || groupByName) {
-      const childrenOfId = new Map<string, string[]>()
-      groupedNodiResult.forEach(n => {
-        if (n.reports_to) {
-          if (!childrenOfId.has(n.reports_to)) childrenOfId.set(n.reports_to, [])
-          childrenOfId.get(n.reports_to)!.push(n.id)
-        }
-      })
-      let maxNodeHeight = 80
-      if (leafListMode) {
-        childrenOfId.forEach((children, _) => {
-          if (children.every(c => !childrenOfId.has(c))) {
-            // all-leaf parent → becomes leafList node
-            const listH = Math.min(children.length * 22 + 20, 212)
-            maxNodeHeight = Math.max(maxNodeHeight, 80 + listH)
-          }
-        })
-      }
-      if (groupByName) {
-        groupedPersonsMap.forEach(g => {
-          const listH = Math.min(g.length * 20 + 10, 154)
-          maxNodeHeight = Math.max(maxNodeHeight, 80 + listH)
-        })
-      }
-      vGap = Math.max(vGap, maxNodeHeight + 20)
-    }
+    let vGap = 130 + (activeFields > 1 ? (activeFields - 1) * 15 : 0)
+    
+    // Rimosso lo sbalzo dinamico del vGap con leafListMode/groupByName.
+    // L'algoritmo di layout ad albero standard assicura che una foglia ampliata
+    // abbia campo libero sotto di sé per espandersi senza collidere.
+
 
     const cfg: LayoutConfig = {
       gridCols: metrics.dynamicGridCols,
-      verticalStackingDepth: metrics.useVerticalStacking ? 7 : null,
+      verticalStackingDepth: visualMode === 'cards' ? 1 : (metrics.useVerticalStacking ? 7 : null),
       forcedVerticalNodes: new Set(),
       vGap,
     }
@@ -676,7 +655,7 @@ export default function PosizioniCanvas() {
     const rootIds = new Set(filtered.filter(n => !n.reports_to || !allIds.has(n.reports_to)).map(n => n.id))
     drillTo(null, () => {
       setCollapsedSet(new Set(filtered.filter(n => !rootIds.has(n.id)).map(n => n.id)))
-      setTimeout(() => fitView({ padding: 0.2, duration: 400, minZoom: 0.1 }), 50)
+      setTimeout(() => fitView({ padding: 0.1, duration: 400, minZoom: 0.3 }), 50)
     })
   }, [filtered, drillTo, fitView])
 
@@ -713,7 +692,7 @@ export default function PosizioniCanvas() {
 
     // All nodes NOT in expandedIds should be collapsed
     setCollapsedSet(new Set(filtered.filter(n => !expandedIds.has(n.id)).map(n => n.id)))
-    setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.1 }), 100)
+    setTimeout(() => fitView({ padding: 0.1, duration: 400, minZoom: 0.25 }), 100)
   }, [filtered, drillRootId, fitView])
 
   const toggleCollapse = useCallback((id: string) => {
@@ -722,7 +701,7 @@ export default function PosizioniCanvas() {
       if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
-    setTimeout(() => fitView({ padding: 0.15, duration: 300, minZoom: 0.1 }), 150)
+    setTimeout(() => fitView({ padding: 0.1, duration: 300, minZoom: 0.3 }), 150)
   }, [fitView])
 
   const handleDropPersonOnNode = useCallback((nodeId: string, cf: string) => {
@@ -928,6 +907,11 @@ export default function PosizioniCanvas() {
             directReports: totalChildren,
             totalReports: descendantCountMap.get(tn.id) ?? 0,
             isAncestor: drillAncestorSet.has(tn.id),
+            viewStyle: visualMode === 'cards' ? 'cards' : 'standard',
+            isStacked: tn.depth >= 1 && visualMode === 'cards',
+            livello: undefined, // Non presente in NodoOrganigramma
+            fts: undefined,
+
             onExpand: () => toggleCollapse(tn.id),
             onExpandOverflow: () => {},
             onOpenDrawer: () => openDrawer(tn.item),
@@ -1023,21 +1007,64 @@ export default function PosizioniCanvas() {
   useEffect(() => {
     if (!search) { setSearchResults([]); return }
     const lower = search.toLowerCase()
-    setSearchResults(filtered.filter(n =>
-      (n.nome_uo?.toLowerCase().includes(lower)) ||
-      (n.id?.toLowerCase().includes(lower)) ||
-      (n.cf_persona?.toLowerCase().includes(lower))
-    ).slice(0, 8))
-  }, [search, filtered])
+    setSearchResults(filtered.filter(n => {
+      const persona = n.cf_persona ? personaMap.get(n.cf_persona) : null
+      return (n.nome_uo?.toLowerCase().includes(lower)) ||
+        (n.id?.toLowerCase().includes(lower)) ||
+        (n.cf_persona?.toLowerCase().includes(lower)) ||
+        (persona?.cognome?.toLowerCase().includes(lower)) ||
+        (persona?.nome?.toLowerCase().includes(lower)) ||
+        ([persona?.cognome, persona?.nome].filter(Boolean).join(' ').toLowerCase().includes(lower))
+    }).slice(0, 10))
+  }, [search, filtered, personaMap])
+
+  const pendingScrollRef = useRef<string | null>(null)
+
+  // Scroll to node once it becomes visible after expanding
+  useEffect(() => {
+    if (!pendingScrollRef.current) return
+    const node = nodes.find(nd => nd.id === pendingScrollRef.current)
+    if (node) {
+      pendingScrollRef.current = null
+      setCenter(node.position.x + 120, node.position.y + 45, { duration: 500, zoom: 1.2 })
+    }
+  }, [nodes, setCenter])
 
   const handleSelectSearchResult = useCallback((n: NodoOrganigramma) => {
-    setSearch(n.nome_uo ?? '')
+    setSearch('')
     setSearchResults([])
+
+    // Reset drill if node is outside current drill context
+    if (drillRootId) {
+      const inDrill = (() => {
+        let cur: string | null = n.id
+        while (cur) {
+          if (cur === drillRootId) return true
+          cur = filtered.find(x => x.id === cur)?.reports_to ?? null
+        }
+        return false
+      })()
+      if (!inDrill) drillTo(null, () => {})
+    }
+
+    // Expand all ancestors so the node becomes visible
+    const ancestorIds = new Set<string>()
+    let cur: string | null = n.reports_to
+    while (cur) {
+      ancestorIds.add(cur)
+      cur = filtered.find(x => x.id === cur)?.reports_to ?? null
+    }
+    setCollapsedSet(prev => {
+      const next = new Set(prev)
+      ancestorIds.forEach(id => next.delete(id))
+      // Keep the node itself collapsed state as-is (don't force expand its children)
+      return next
+    })
+
     setHighlightedNode(n.id)
-    const node = nodes.find(nd => nd.id === n.id)
-    if (node) setCenter(node.position.x + 110, node.position.y + 45, { duration: 600, zoom: 1 })
-    setTimeout(() => setHighlightedNode(null), 2000)
-  }, [nodes, setCenter])
+    pendingScrollRef.current = n.id
+    setTimeout(() => setHighlightedNode(null), 3000)
+  }, [filtered, drillRootId, drillTo])
 
   const handleFocusExpand = useCallback((nodeId: string) => {
     drillInto(nodeId, 'expand', () => {
@@ -1147,25 +1174,45 @@ export default function PosizioniCanvas() {
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-4 py-2 bg-slate-900 border-b border-slate-700 flex-wrap">
+      <div className="flex items-center gap-2 px-4 py-2 bg-slate-900 border-b border-slate-700 flex-wrap">
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
           <input
-            type="text" placeholder="Cerca nodo..."
-            value={search} onChange={e => setSearch(e.target.value)}
-            className="pl-8 pr-3 py-1.5 text-sm bg-slate-800 border border-slate-600 rounded-md w-52 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            type="text" placeholder="Cerca nodo o persona..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') { setSearch(''); setSearchResults([]) } }}
+            className="pl-8 pr-8 py-1.5 text-sm bg-slate-800 border border-slate-600 rounded-md w-60 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
+          {search && (
+            <button onClick={() => { setSearch(''); setSearchResults([]) }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
           {searchResults.length > 0 && (
-            <div className="absolute top-full left-0 mt-1 w-72 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-10">
-              {searchResults.map(n => (
-                <button key={n.id} onClick={() => handleSelectSearchResult(n)}
-                  className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm text-slate-200">
-                  <span className="font-medium">{n.nome_uo ?? n.id}</span>
-                  <span className="text-slate-500 ml-2 text-xs">{n.id}</span>
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="fixed inset-0 z-[9]" onClick={() => setSearchResults([])} />
+              <div className="absolute top-full left-0 mt-1 w-80 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-10">
+                {searchResults.map(n => {
+                  const persona = n.cf_persona ? personaMap.get(n.cf_persona) : null
+                  const personaName = persona ? `${persona.cognome ?? ''} ${persona.nome ?? ''}`.trim() : null
+                  return (
+                    <button key={n.id} onClick={() => handleSelectSearchResult(n)}
+                      className="w-full text-left px-3 py-2 hover:bg-slate-700 transition-colors border-b border-slate-700/50 last:border-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-slate-200 truncate">{n.nome_uo ?? n.id}</span>
+                        <span className="text-xs text-slate-500 font-mono flex-shrink-0">{n.id}</span>
+                      </div>
+                      {personaName && (
+                        <div className="text-xs text-indigo-300/80 mt-0.5">{personaName}</div>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </>
           )}
         </div>
 
@@ -1195,6 +1242,49 @@ export default function PosizioniCanvas() {
           </div>
         )}
 
+        {/* Drill breadcrumb — AREA 1: Navigazione */}
+        {viewMode === 'tree' && drillRootId && (
+          <div className="flex items-center gap-0.5 text-sm">
+            {(() => {
+              let items = drillBreadcrumb.map((item, idx) => ({ ...item, isLast: idx === drillBreadcrumb.length - 1, isEllipsis: false }))
+              if (items.length > 4) {
+                items = [
+                  items[0],
+                  { id: 'ellipsis', label: '...', isLast: false, isEllipsis: true } as any,
+                  ...items.slice(-2)
+                ]
+              }
+
+              return items.map((item, idx) => (
+                <React.Fragment key={item.id}>
+                  {idx > 0 && <span className="text-slate-600 mx-0.5">/</span>}
+                  {item.isEllipsis ? (
+                    <span className="text-slate-500 font-medium px-1 cursor-default" title={`Livelli intermedi nascosti`}>...</span>
+                  ) : (
+                    <button
+                      onClick={() => drillTo(item.id, () => { setCollapsedSet(new Set()); setTimeout(() => fitView({ padding: 0.1, duration: 400, minZoom: 0.3 }), 50) })}
+                      className={[
+                        'px-1.5 py-0.5 rounded transition-colors max-w-[120px] truncate',
+                        item.isLast
+                          ? 'text-slate-200 font-medium cursor-default'
+                          : 'text-indigo-400 hover:text-indigo-200 hover:bg-slate-700'
+                      ].join(' ')}
+                      title={item.label}
+                    >
+                      {item.label}
+                    </button>
+                  )}
+                </React.Fragment>
+              ))
+            })()}
+          </div>
+        )}
+
+        {/* Divisore 1: Navigazione | Vista */}
+        {viewMode === 'tree' && <div className="w-px h-5 bg-slate-700 flex-none" />}
+
+        {/* ── AREA 2: Vista ── */}
+
         {/* Visual Mode Toggle (Flow vs Treemap) */}
         {viewMode === 'tree' && (
           <div className="flex bg-slate-800 p-0.5 rounded-md border border-slate-700">
@@ -1207,17 +1297,25 @@ export default function PosizioniCanvas() {
               Organigramma
             </button>
             <button
-              onClick={() => setVisualMode('treemap')}
+              onClick={() => { setVisualMode('treemap'); fitView({ padding: 0.1, duration: 400 }) }}
               className={`px-3 py-1 text-xs rounded-sm transition-colors ${
                 visualMode === 'treemap' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
               }`}
             >
               Treemap
             </button>
+            <button
+              onClick={() => { setVisualMode('cards'); setTimeout(() => fitView({ padding: 0.1, duration: 400 }), 100) }}
+              className={`px-3 py-1 text-xs rounded-sm transition-colors ${
+                visualMode === 'cards' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+              }`}
+            >
+              Vista schede
+            </button>
           </div>
         )}
 
-        {viewMode === 'tree' && visualMode === 'flow' && (
+        {viewMode === 'tree' && (visualMode === 'flow' || visualMode === 'cards') && (
           <>
             <button onClick={() => setGroupByName(g => !g)}
               className={[
@@ -1242,27 +1340,27 @@ export default function PosizioniCanvas() {
           </>
         )}
 
-        {/* Drill breadcrumb — derivato dalla gerarchia reale */}
-        {viewMode === 'tree' && drillRootId && (
-          <div className="flex items-center gap-0.5 text-sm">
-            {drillBreadcrumb.map((item, idx) => (
-              <React.Fragment key={idx}>
-                {idx > 0 && <span className="text-slate-600 mx-0.5">/</span>}
-                <button
-                  onClick={() => drillTo(item.id, () => { setCollapsedSet(new Set()); setTimeout(() => fitView({ padding: 0.15, duration: 400, minZoom: 0.1 }), 50) })}
-                  className={[
-                    'px-1.5 py-0.5 rounded transition-colors max-w-[120px] truncate',
-                    idx === drillBreadcrumb.length - 1
-                      ? 'text-slate-200 font-medium cursor-default'
-                      : 'text-indigo-400 hover:text-indigo-200 hover:bg-slate-700'
-                  ].join(' ')}
-                >
-                  {item.label}
-                </button>
-              </React.Fragment>
-            ))}
-          </div>
-        )}
+        {/* Colora per — fine AREA 2 */}
+        <select
+          value={colorMode}
+          onChange={e => setColorMode(e.target.value)}
+          className="text-xs bg-slate-800 border border-slate-600 rounded-md px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 max-w-[140px]"
+          title="Colora nodi per campo"
+        >
+          <option value="none">Colora per…</option>
+          {ALL_FIELD_OPTIONS.map(group => (
+            <optgroup key={group.group} label={group.group}>
+              {group.fields.filter(f => f.value !== '').map(f => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+
+        {/* Divisore 2: Vista | Modifica */}
+        <div className="w-px h-5 bg-slate-700 flex-none" />
+
+        {/* ── AREA 3: Modifica ── */}
 
         {/* Drag edit mode toggle */}
         {viewMode === 'tree' && (
@@ -1279,23 +1377,6 @@ export default function PosizioniCanvas() {
             {dragEditMode ? '✎ Modifica attiva' : '✎ Modifica riporti'}
           </button>
         )}
-
-        {/* Colora per */}
-        <select
-          value={colorMode}
-          onChange={e => setColorMode(e.target.value)}
-          className="text-xs bg-slate-800 border border-slate-600 rounded-md px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 max-w-[140px]"
-          title="Colora nodi per campo"
-        >
-          <option value="none">Colora per…</option>
-          {ALL_FIELD_OPTIONS.map(group => (
-            <optgroup key={group.group} label={group.group}>
-              {group.fields.filter(f => f.value !== '').map(f => (
-                <option key={f.value} value={f.value}>{f.label}</option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
 
         {/* Vista stampa */}
         <button
@@ -1622,9 +1703,9 @@ export default function PosizioniCanvas() {
               nodeTypes={NODE_TYPES}
               edgeTypes={EDGE_TYPES}
               fitView
-              fitViewOptions={{ padding: 0.15 }}
-              minZoom={0.1}
-              maxZoom={2}
+              fitViewOptions={{ padding: 0.1 }}
+              minZoom={0.65}
+              maxZoom={1.5}
               proOptions={{ hideAttribution: true }}
               nodesDraggable={dragEditMode}
               onNodeClick={dragEditMode ? undefined : handleNodeClick}

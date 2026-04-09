@@ -14,6 +14,7 @@ import DashboardView from '@/components/views/DashboardView'
 import ImportSchedaMovimentoView from '@/components/views/ImportSchedaMovimentoView'
 import ExportView from '@/components/views/ExportView'
 import ImportVerificaDipendentiView from '@/components/views/ImportVerificaDipendentiView'
+import ImpostazioniView from '@/components/views/ImpostazioniView'
 import { useHRStore } from '@/store/useHRStore'
 import type { ActiveSection } from '@/types'
 
@@ -53,6 +54,7 @@ export default function Home() {
       {mounted.has('accordion') && <div className={vis('accordion')}><AccordionSectionView /></div>}
       {mounted.has('dashboard') && <div className={vis('dashboard')}><DashboardView /></div>}
       {mounted.has('esportazioni') && <div className={vis('esportazioni')}><ExportView /></div>}
+      {mounted.has('impostazioni') && <div className={vis('impostazioni')}><ImpostazioniView /></div>}
     </AppShell>
   )
 }

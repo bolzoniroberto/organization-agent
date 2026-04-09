@@ -307,6 +307,14 @@ function createSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_notif_severity ON agent_notifications(severity);
   `)
 
+  // === App Settings table (white-label, configurazioni globali) ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `)
+
   // === Agent Chat Messages table ===
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_chat_messages (

@@ -362,6 +362,7 @@ function BulkEditTab() {
   const [loading, setLoading] = useState(false)
   const [applyConfirm, setApplyConfirm] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [searchText, setSearchText] = useState('')
   const gridRef = useRef<AgGridReact>(null)
 
   const varTarget = ENTITY_VAR_TARGET[entityType]
@@ -398,7 +399,7 @@ function BulkEditTab() {
     return [...base, ...varCols]
   }, [entityType, compatibleVars])
 
-  useEffect(() => { setField(''); setValue(''); setSelected([]) }, [entityType])
+  useEffect(() => { setField(''); setValue(''); setSelected([]); setSearchText('') }, [entityType])
 
   const getRowId = useCallback((params: { data: Record<string, unknown> }) => String(params.data[idField]), [idField])
 
@@ -472,6 +473,14 @@ function BulkEditTab() {
 
         <span className="text-xs text-slate-600">{rowData.length} record</span>
 
+        <input
+          type="search"
+          placeholder="Cerca su tutti i campi…"
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+          className="bg-slate-700 border border-slate-600 text-slate-300 placeholder-slate-500 text-xs px-2.5 py-1 rounded w-52 focus:outline-none focus:border-indigo-500"
+        />
+
         <div className="flex-1" />
 
         {selected.length > 0 && (
@@ -517,6 +526,7 @@ function BulkEditTab() {
           defaultColDef={{ resizable: true, sortable: true, filter: true }}
           headerHeight={32}
           rowHeight={28}
+          quickFilterText={searchText}
         />
       </div>
 

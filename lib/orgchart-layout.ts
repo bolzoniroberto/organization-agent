@@ -1,8 +1,8 @@
 // Pure layout functions — no React imports
 
-const H_GAP = 290
-const V_GAP = 150
-const GRID_COLS = 7
+const H_GAP = 240
+const V_GAP = 130
+const GRID_COLS = 8
 
 export interface TreeNode<T> {
   item: T
@@ -89,8 +89,9 @@ export function analyzeTree<T>(nodes: TreeNode<T>[]): TreeMetrics {
   nodes.forEach(dfs)
 
   const avgSpan = spanCount > 0 ? totalSpan / spanCount : 0
-  const dynamicGridCols = avgSpan > 8 ? Math.ceil(avgSpan / 2) : GRID_COLS
-  const useVerticalStacking = maxDepth > 9
+  // Forza colonne dinamiche se ci sono molti figli diretti (es. dipendenti)
+  const dynamicGridCols = avgSpan > 6 ? 4 : GRID_COLS 
+  const useVerticalStacking = maxDepth > 5 || avgSpan > 12
 
   return { avgSpan, maxDepth, totalNodes, dynamicGridCols, useVerticalStacking }
 }
@@ -121,7 +122,9 @@ export function layoutTree<T>(
       let childY = (node.depth + 1) * vg
       let maxChildRight = x + hg
       for (const child of node.children) {
-        child.x = x + hg * 0.2
+        // Il trunk scende dal centro del padre (x + 110).
+        // Posizioniamo il figlio a destra del trunk
+        child.x = x + 110 + 30
         child.y = childY
         const childRight = layoutTree(child.children, child.x, config)
         const yDelta = childY - child.depth * vg
@@ -130,6 +133,7 @@ export function layoutTree<T>(
             desc.y += yDelta
           }
         }
+
         if (childRight > maxChildRight) maxChildRight = childRight
         childY += (getSubtreeDepth(child) + 1) * vg
       }
@@ -154,60 +158,10 @@ export function layoutTree<T>(
 
       x = gridStartX + gridWidth
     } else {
-      // Check if we should use staggered multi-row layout
-      const hasSubtreeChildren = node.children.some(c => c.children.length > 0)
-      const MAX_PER_ROW = 4
-
-      if (hasSubtreeChildren && node.children.length > MAX_PER_ROW) {
-        // Staggered layout: split children into rows, offset vertically
-        const rowSize = Math.ceil(node.children.length / Math.ceil(node.children.length / MAX_PER_ROW))
-        const rows: TreeNode<T>[][] = []
-        for (let i = 0; i < node.children.length; i += rowSize) {
-          rows.push(node.children.slice(i, i + rowSize))
-        }
-
-        let maxRight = x
-        let yOffset = 0
-
-        for (const row of rows) {
-          let rowX = x
-          let maxDepthInRow = 0
-
-          for (const child of row) {
-            child.y = (node.depth + 1) * vg + yOffset
-            child.x = rowX
-
-            const childRight = layoutTree(child.children, child.x, config)
-            // Adjust all descendants by yOffset
-            const yDelta = yOffset
-            if (yDelta !== 0) {
-              for (const desc of flattenTree(child.children)) {
-                desc.y += yDelta
-              }
-            }
-
-            // Center child over its subtree, or place at rowX if leaf
-            if (child.children.length > 0) {
-              const childBB = getBoundingBox(child.children)
-              child.x = (child.x + childBB.maxX) / 2
-            }
-
-            maxDepthInRow = Math.max(maxDepthInRow, getSubtreeDepth(child))
-            rowX = Math.max(rowX + hg, childRight)
-          }
-
-          maxRight = Math.max(maxRight, rowX)
-          yOffset += (maxDepthInRow + 1) * vg
-        }
-
-        node.x = (x + maxRight - hg) / 2
-        x = maxRight
-      } else {
-        // Standard: all children on same row
-        const subtreeStart = x
-        x = layoutTree(node.children, x, config)
-        node.x = (subtreeStart + x - hg) / 2
-      }
+      // Standard: all children on same row (avoids vertical depth overlap bugs)
+      const subtreeStart = x
+      x = layoutTree(node.children, x, config)
+      node.x = (subtreeStart + x - hg) / 2
     }
   }
 

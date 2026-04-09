@@ -1,31 +1,22 @@
 'use client'
 import React, { useCallback, useRef, useState, useEffect } from 'react'
-import { Upload, FileText, MessageSquare, Loader2, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react'
+import { Send, Loader2, AlertTriangle, ChevronDown, ChevronRight, Trash2, Zap, Paperclip, X, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useHRStore } from '@/store/useHRStore'
 import type { OrdineServizioAnalysis, OrdineServizioProposal, ProposalTipo } from '@/types'
 
-const DRAFT_KEY = 'ordine-servizio-draft'
+// ── Tipi locali ───────────────────────────────────────────────────────────────
 
-function saveDraft(analysis: OrdineServizioAnalysis) {
-  try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ analysis, savedAt: Date.now() })) } catch {}
-}
-function loadDraft(): { analysis: OrdineServizioAnalysis; savedAt: number } | null {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    // Discard drafts older than 4 hours
-    if (Date.now() - parsed.savedAt > 4 * 60 * 60 * 1000) { localStorage.removeItem(DRAFT_KEY); return null }
-    return parsed
-  } catch { return null }
-}
-function clearDraft() {
-  try { localStorage.removeItem(DRAFT_KEY) } catch {}
+interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  metadata?: string | null
+  created_at?: string
+  proposals?: OrdineServizioProposal[]
 }
 
-type Mode = 'documento' | 'prompt'
-type Phase = 'input' | 'loading' | 'proposte' | 'done'
+// ── Costanti di stile ─────────────────────────────────────────────────────────
 
 const TIPO_COLORS: Record<ProposalTipo, string> = {
   INSERT_PERSONA:      'bg-emerald-700/30 text-emerald-300 border-emerald-700',
@@ -49,13 +40,17 @@ function confidenceLabel(c: string) {
   return c === 'high' ? 'Alta' : c === 'medium' ? 'Media' : 'Bassa'
 }
 
-const ACCEPTED_EXTS = '.pdf,.docx,.doc,.xls,.xlsx,.csv,.md,.txt'
+// ── ProposalCard ──────────────────────────────────────────────────────────────
 
-function ProposalRow({ p, checked, onToggle }: { p: OrdineServizioProposal; checked: boolean; onToggle: () => void }) {
+function ProposalCard({ p, checked, onToggle }: { p: OrdineServizioProposal; checked: boolean; onToggle: () => void }) {
   const [open, setOpen] = useState(false)
+
+  const changedFields = Object.keys(p.data)
+
   return (
-    <div className={`border rounded-lg p-3 transition-colors ${checked ? 'border-slate-600 bg-slate-800/50' : 'border-slate-700/50 bg-slate-900/30 opacity-60'}`}>
-      <div className="flex items-start gap-3">
+    <div className={`border rounded-lg transition-colors ${checked ? 'border-slate-600 bg-slate-800/60' : 'border-slate-700/40 bg-slate-900/20 opacity-50'}`}>
+      {/* Header */}
+      <div className="flex items-start gap-2.5 p-3">
         <input
           type="checkbox"
           checked={checked}
@@ -63,314 +58,409 @@ function ProposalRow({ p, checked, onToggle }: { p: OrdineServizioProposal; chec
           className="mt-0.5 accent-indigo-500 w-4 h-4 cursor-pointer flex-none"
         />
         <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-2 mb-1">
-            <span className={`text-xs px-2 py-0.5 rounded border font-mono ${TIPO_COLORS[p.tipo]}`}>{p.tipo}</span>
-            {p.entityLabel && <span className="text-xs text-slate-400">{p.entityLabel}</span>}
+          <div className="flex flex-wrap items-center gap-1.5 mb-1">
+            <span className={`text-xs px-1.5 py-0.5 rounded border font-mono ${TIPO_COLORS[p.tipo]}`}>{p.tipo}</span>
+            {p.entityLabel && <span className="text-xs font-medium text-slate-200">{p.entityLabel}</span>}
             {p.entityId && <span className="text-xs text-slate-500 font-mono">{p.entityId}</span>}
-            <span className="flex items-center gap-1 text-xs text-slate-500 ml-auto">
-              <span className={`w-2 h-2 rounded-full ${CONFIDENCE_DOT[p.confidence]}`} />
+            <span className="flex items-center gap-1 text-xs text-slate-500 ml-auto flex-none">
+              <span className={`w-1.5 h-1.5 rounded-full ${CONFIDENCE_DOT[p.confidence]}`} />
               {confidenceLabel(p.confidence)}
             </span>
           </div>
           <p className="text-sm text-slate-200">{p.label}</p>
-          <button
-            onClick={() => setOpen(o => !o)}
-            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 mt-1 transition-colors"
-          >
-            {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            Motivazione
-          </button>
-          {open && (
-            <p className="text-xs text-slate-400 mt-1 pl-4 border-l border-slate-700">{p.rationale}</p>
-          )}
         </div>
+      </div>
+
+      {/* Before/After table */}
+      {changedFields.length > 0 && (
+        <div className="mx-3 mb-2 rounded border border-slate-700/50 overflow-hidden">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-800/80">
+                <th className="text-left px-2 py-1 text-slate-500 font-medium w-1/3">Campo</th>
+                <th className="text-left px-2 py-1 text-slate-500 font-medium w-1/3">Prima</th>
+                <th className="text-left px-2 py-1 text-slate-400 font-medium w-1/3">Dopo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {changedFields.map(field => {
+                const before = p.currentValues?.[field]
+                const after = p.data[field]
+                return (
+                  <tr key={field} className="border-t border-slate-700/40">
+                    <td className="px-2 py-1 text-slate-400 font-mono">{field}</td>
+                    <td className="px-2 py-1 text-slate-500">
+                      {before !== undefined && before !== null ? String(before) : <span className="text-slate-700">—</span>}
+                    </td>
+                    <td className="px-2 py-1 text-indigo-300 font-medium">
+                      {after !== null && after !== undefined ? String(after) : <span className="text-red-400/70">null</span>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Motivazione */}
+      <div className="px-3 pb-2">
+        <button
+          onClick={() => setOpen(o => !o)}
+          className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-400 transition-colors"
+        >
+          {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          Motivazione
+        </button>
+        {open && <p className="text-xs text-slate-500 mt-1 pl-4 border-l border-slate-700">{p.rationale}</p>}
       </div>
     </div>
   )
 }
 
-export default function AgentiView() {
+// ── ProposalsBlock ────────────────────────────────────────────────────────────
+
+function ProposalsBlock({ proposals, messageId }: { proposals: OrdineServizioProposal[]; messageId: string }) {
   const { showToast, refreshAll } = useHRStore()
-
-  const [phase, setPhase] = useState<Phase>('input')
-  const [mode, setMode] = useState<Mode>('documento')
-  const [file, setFile] = useState<File | null>(null)
-  const [promptText, setPromptText] = useState('')
-  const [dragging, setDragging] = useState(false)
-  const [analysis, setAnalysis] = useState<OrdineServizioAnalysis | null>(null)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(proposals.map(p => p.id)))
   const [applying, setApplying] = useState(false)
-  const [result, setResult] = useState<{ applied: number; errors: string[] } | null>(null)
-  const [draft, setDraft] = useState<{ analysis: OrdineServizioAnalysis; savedAt: number } | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [applied, setApplied] = useState(false)
 
-  useEffect(() => { setDraft(loadDraft()) }, [])
-
-  const canAnalyze = mode === 'documento' ? !!file : promptText.trim().length > 0
-
-  const handleFileSelect = (f: File) => setFile(f)
-
-  const onDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setDragging(false)
-    const f = e.dataTransfer.files[0]
-    if (f) handleFileSelect(f)
-  }, [])
-
-  const analyze = async () => {
-    setPhase('loading')
-    try {
-      const result = await api.agents.analyzeOrdineServizio({
-        file: mode === 'documento' ? file ?? undefined : undefined,
-        prompt: mode === 'prompt' ? promptText : undefined,
-      })
-      saveDraft(result)
-      setDraft(null)
-      setAnalysis(result)
-      setSelected(new Set(result.proposte.map(p => p.id)))
-      setPhase('proposte')
-    } catch (err) {
-      setPhase('input')
-      showToast(`Errore analisi: ${err instanceof Error ? err.message : String(err)}`, 'error')
-    }
-  }
-
-  const restoreDraft = () => {
-    if (!draft) return
-    setAnalysis(draft.analysis)
-    setSelected(new Set(draft.analysis.proposte.map(p => p.id)))
-    setDraft(null)
-    setPhase('proposte')
-  }
+  const toggle = (id: string) => setSelected(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
 
   const apply = async () => {
-    if (!analysis) return
-    const toApply = analysis.proposte.filter(p => selected.has(p.id))
+    const toApply = proposals.filter(p => selected.has(p.id))
+    if (toApply.length === 0) return
     setApplying(true)
     try {
       const res = await api.agents.executeOrdineServizio(toApply)
-      setResult(res)
-      setPhase('done')
+      setApplied(true)
       await refreshAll()
       if (res.errors.length === 0) {
-        showToast(`${res.applied} proposte applicate con successo`, 'success')
+        showToast(`${res.applied} proposte applicate`, 'success')
       } else {
         showToast(`${res.applied} applicate, ${res.errors.length} errori`, 'error')
       }
     } catch (err) {
-      showToast(`Errore esecuzione: ${err instanceof Error ? err.message : String(err)}`, 'error')
+      showToast(`Errore: ${String(err)}`, 'error')
     } finally {
       setApplying(false)
     }
   }
 
-  const reset = () => {
-    clearDraft()
-    setPhase('input')
-    setFile(null)
-    setPromptText('')
-    setAnalysis(null)
-    setSelected(new Set())
-    setResult(null)
-    setDraft(null)
-  }
-
-  if (phase === 'loading') {
+  if (applied) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-4 text-slate-400">
-        <Loader2 className="w-10 h-10 animate-spin text-indigo-400" />
-        <p className="text-sm">Analisi AI in corso…</p>
-      </div>
-    )
-  }
-
-  if (phase === 'done' && result) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-6">
-        <CheckCircle2 className="w-12 h-12 text-emerald-400" />
-        <div className="text-center">
-          <p className="text-lg font-semibold text-slate-200">{result.applied} proposte applicate</p>
-          {result.errors.length > 0 && (
-            <div className="mt-3 text-left max-w-lg">
-              <p className="text-sm text-red-400 mb-1">{result.errors.length} errori:</p>
-              <ul className="text-xs text-red-300 space-y-0.5">
-                {result.errors.map((e, i) => <li key={i}>• {e}</li>)}
-              </ul>
-            </div>
-          )}
-        </div>
-        <button
-          onClick={reset}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition-colors"
-        >
-          Nuovo documento
-        </button>
-      </div>
-    )
-  }
-
-  if (phase === 'proposte' && analysis) {
-    const selectedCount = selected.size
-    return (
-      <div className="flex flex-col h-full overflow-hidden">
-        <div className="flex-none p-4 border-b border-slate-700 space-y-3">
-          <div className="bg-indigo-900/30 border border-indigo-700/40 rounded-lg p-3">
-            <p className="text-sm text-indigo-200">{analysis.sommario}</p>
-          </div>
-          {analysis.avvertenze.length > 0 && (
-            <div className="bg-amber-900/20 border border-amber-700/40 rounded-lg p-3">
-              <div className="flex items-center gap-2 mb-1">
-                <AlertTriangle className="w-4 h-4 text-amber-400 flex-none" />
-                <span className="text-xs font-medium text-amber-300">Avvertenze</span>
-              </div>
-              <ul className="text-xs text-amber-200 space-y-0.5">
-                {analysis.avvertenze.map((a, i) => <li key={i}>• {a}</li>)}
-              </ul>
-            </div>
-          )}
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>{analysis.proposte.length} proposte totali</span>
-            <div className="flex gap-2">
-              <button onClick={() => setSelected(new Set(analysis.proposte.map(p => p.id)))} className="text-indigo-400 hover:text-indigo-300">Seleziona tutti</button>
-              <span>·</span>
-              <button onClick={() => setSelected(new Set())} className="text-slate-500 hover:text-slate-300">Deseleziona tutti</button>
-            </div>
-            <span>{selectedCount} selezionate</span>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {analysis.proposte.map(p => (
-            <ProposalRow
-              key={p.id}
-              p={p}
-              checked={selected.has(p.id)}
-              onToggle={() => setSelected(prev => {
-                const next = new Set(prev)
-                if (next.has(p.id)) next.delete(p.id)
-                else next.add(p.id)
-                return next
-              })}
-            />
-          ))}
-        </div>
-
-        <div className="flex-none p-4 border-t border-slate-700 flex items-center justify-between gap-3">
-          <button
-            onClick={reset}
-            className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
-          >
-            ← Nuovo documento
-          </button>
-          <button
-            onClick={apply}
-            disabled={selectedCount === 0 || applying}
-            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors flex items-center gap-2"
-          >
-            {applying && <Loader2 className="w-4 h-4 animate-spin" />}
-            Applica {selectedCount} proposte selezionate
-          </button>
-        </div>
+      <div className="mt-2 flex items-center gap-2 text-sm text-emerald-400">
+        <CheckCircle2 className="w-4 h-4" />
+        Proposte applicate
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto p-6">
-      <div className="max-w-2xl w-full mx-auto space-y-6">
+    <div className="mt-2 border border-slate-700/60 rounded-xl overflow-hidden" key={messageId}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 bg-slate-800/80 border-b border-slate-700/60">
+        <span className="text-xs font-medium text-slate-300">{proposals.length} {proposals.length === 1 ? 'proposta' : 'proposte'}</span>
+        <div className="flex gap-3 text-xs">
+          <button onClick={() => setSelected(new Set(proposals.map(p => p.id)))} className="text-indigo-400 hover:text-indigo-300">Seleziona tutti</button>
+          <button onClick={() => setSelected(new Set())} className="text-slate-500 hover:text-slate-400">Deseleziona</button>
+        </div>
+      </div>
+
+      {/* Cards */}
+      <div className="p-2 space-y-2 bg-slate-900/40">
+        {proposals.map(p => (
+          <ProposalCard key={p.id} p={p} checked={selected.has(p.id)} onToggle={() => toggle(p.id)} />
+        ))}
+      </div>
+
+      {/* Footer */}
+      <div className="px-3 py-2 bg-slate-800/60 border-t border-slate-700/60 flex justify-end">
+        <button
+          onClick={apply}
+          disabled={selected.size === 0 || applying}
+          className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs rounded-lg transition-colors"
+        >
+          {applying && <Loader2 className="w-3 h-3 animate-spin" />}
+          Applica {selected.size} selezionate
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Markdown semplice ─────────────────────────────────────────────────────────
+
+function SimpleMarkdown({ text }: { text: string }) {
+  // Minimal inline rendering: bold, code, line breaks
+  const lines = text.split('\n')
+  return (
+    <div className="space-y-0.5 text-sm text-slate-200 leading-relaxed">
+      {lines.map((line, i) => {
+        if (line.startsWith('## ')) return <p key={i} className="font-semibold text-slate-100 mt-2">{line.slice(3)}</p>
+        if (line.startsWith('# '))  return <p key={i} className="font-bold text-white mt-2">{line.slice(2)}</p>
+        if (line.startsWith('- ') || line.startsWith('• ')) {
+          return <p key={i} className="pl-3 text-slate-300">• {line.slice(2)}</p>
+        }
+        if (line.trim() === '') return <div key={i} className="h-1" />
+        // Inline bold **...**
+        const parts = line.split(/(\*\*[^*]+\*\*|`[^`]+`)/)
+        return (
+          <p key={i}>
+            {parts.map((part, j) => {
+              if (part.startsWith('**') && part.endsWith('**')) return <strong key={j} className="text-slate-100">{part.slice(2, -2)}</strong>
+              if (part.startsWith('`') && part.endsWith('`')) return <code key={j} className="bg-slate-700/60 px-1 rounded text-xs font-mono text-indigo-300">{part.slice(1, -1)}</code>
+              return <span key={j}>{part}</span>
+            })}
+          </p>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── AgentiView principale ─────────────────────────────────────────────────────
+
+const ACCEPTED_EXTS = '.pdf,.docx,.doc,.xls,.xlsx,.csv,.md,.txt'
+const EFFICIENCY_PROMPT = 'Analizza il database e proponi miglioramenti di efficienza organizzativa e qualità dei dati: posizioni scoperte, span of control eccessivo, persone senza nodo, contratti scaduti non chiusi.'
+
+export default function AgentiView() {
+  const { showToast, refreshAll } = useHRStore()
+
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [loadingHistory, setLoadingHistory] = useState(true)
+  const [attachedFile, setAttachedFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Carica storico
+  useEffect(() => {
+    api.agents.chat.history(100).then(({ messages: hist }) => {
+      setMessages(hist.map(m => ({
+        id: m.id,
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        metadata: m.metadata,
+        created_at: m.created_at,
+        proposals: m.metadata ? (() => {
+          try { const p = JSON.parse(m.metadata!); return p.proposals ?? undefined } catch { return undefined }
+        })() : undefined
+      })))
+      setLoadingHistory(false)
+    }).catch(() => setLoadingHistory(false))
+  }, [])
+
+  // Scroll to bottom
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  const sendMessage = useCallback(async (text: string, file?: File) => {
+    if (!text.trim() && !file) return
+    setLoading(true)
+
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: text.trim() || (file ? `[Documento: ${file.name}]` : ''),
+    }
+    setMessages(prev => [...prev, userMsg])
+    setInput('')
+    setAttachedFile(null)
+
+    try {
+      let proposals: OrdineServizioProposal[] | undefined
+      let response: string
+
+      if (file) {
+        // Usa ordine-servizio per file upload, poi inietta nel chat
+        const analysis: OrdineServizioAnalysis = await api.agents.analyzeOrdineServizio({ file, prompt: text.trim() || undefined })
+        response = analysis.sommario
+        proposals = analysis.proposte
+        // Non salva nel DB della chat (solo locale)
+      } else {
+        const result = await api.agents.chat.send(text.trim())
+        response = result.response
+        proposals = result.proposals
+      }
+
+      const assistantMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: response,
+        proposals,
+      }
+      setMessages(prev => [...prev, assistantMsg])
+    } catch (err) {
+      const errMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `⚠️ Errore: ${String(err)}`,
+      }
+      setMessages(prev => [...prev, errMsg])
+      showToast(String(err), 'error')
+    } finally {
+      setLoading(false)
+    }
+  }, [showToast])
+
+  const handleSend = () => sendMessage(input, attachedFile ?? undefined)
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  const handleClear = async () => {
+    await api.agents.chat.clear()
+    setMessages([])
+    showToast('Conversazione cancellata', 'success')
+  }
+
+  return (
+    <div className="flex flex-col h-full bg-slate-950">
+      {/* Header */}
+      <div className="flex-none flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-700">
         <div>
-          <h1 className="text-lg font-semibold text-slate-200">Ordine di Servizio AI</h1>
-          <p className="text-sm text-slate-500 mt-1">Carica un documento o inserisci un prompt per generare proposte di modifica al DB.</p>
+          <h1 className="text-sm font-semibold text-slate-200">Assistente HR</h1>
+          <p className="text-xs text-slate-500">Descrivi un problema o chiedi un'analisi</p>
         </div>
-
-        {draft && (
-          <div className="flex items-center gap-3 bg-amber-900/20 border border-amber-700/40 rounded-lg px-4 py-3">
-            <RotateCcw className="w-4 h-4 text-amber-400 flex-none" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-amber-200 font-medium">Analisi precedente disponibile</p>
-              <p className="text-xs text-amber-400 mt-0.5">
-                {draft.analysis.proposte.length} proposte salvate — {new Date(draft.savedAt).toLocaleTimeString('it-IT')}
-              </p>
-            </div>
-            <button
-              onClick={restoreDraft}
-              className="text-xs bg-amber-700/40 hover:bg-amber-700/60 text-amber-200 px-3 py-1.5 rounded transition-colors"
-            >
-              Ripristina
-            </button>
-            <button onClick={() => { clearDraft(); setDraft(null) }} className="text-amber-600 hover:text-amber-400 text-xs">
-              Ignora
-            </button>
-          </div>
-        )}
-
-        <div className="flex border-b border-slate-700">
-          {(['documento', 'prompt'] as Mode[]).map(m => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={[
-                'flex items-center gap-2 px-4 py-2 text-sm border-b-2 transition-colors capitalize',
-                mode === m
-                  ? 'border-indigo-500 text-indigo-300'
-                  : 'border-transparent text-slate-500 hover:text-slate-300'
-              ].join(' ')}
-            >
-              {m === 'documento' ? <FileText className="w-4 h-4" /> : <MessageSquare className="w-4 h-4" />}
-              {m === 'documento' ? 'Documento' : 'Prompt testuale'}
-            </button>
-          ))}
-        </div>
-
-        {mode === 'documento' ? (
-          <div
-            onDragOver={e => { e.preventDefault(); setDragging(true) }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={onDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={[
-              'border-2 border-dashed rounded-xl p-10 flex flex-col items-center gap-3 cursor-pointer transition-colors',
-              dragging ? 'border-indigo-500 bg-indigo-900/10' : 'border-slate-600 hover:border-slate-500 hover:bg-slate-800/30'
-            ].join(' ')}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={ACCEPTED_EXTS}
-              className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f) }}
-            />
-            <Upload className="w-8 h-8 text-slate-500" />
-            {file ? (
-              <div className="text-center">
-                <p className="text-sm font-medium text-slate-200">{file.name}</p>
-                <p className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB</p>
-              </div>
-            ) : (
-              <div className="text-center">
-                <p className="text-sm text-slate-400">Trascina qui il documento o clicca per selezionarlo</p>
-                <p className="text-xs text-slate-600 mt-1">PDF, .docx, .doc, .xls, .xlsx, .csv, .md</p>
-                <p className="text-xs text-slate-600">Ordini di servizio, circolari HR, delibere organizzative, liste cessati</p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <textarea
-            value={promptText}
-            onChange={e => setPromptText(e.target.value)}
-            placeholder="Descrivi la modifica organizzativa (es. 'Mario Rossi CF RSSMRO... viene assunto il 1/4/2026 nell'UO Direzione Generale come Senior Editor')"
-            rows={6}
-            className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-500 resize-y focus:outline-none focus:border-indigo-500 transition-colors"
-          />
-        )}
-
-        <div className="flex justify-end">
+        <div className="flex items-center gap-2">
           <button
-            onClick={analyze}
-            disabled={!canAnalyze}
-            className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors"
+            onClick={() => sendMessage(EFFICIENCY_PROMPT)}
+            disabled={loading}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-amber-900/30 hover:bg-amber-900/50 border border-amber-700/50 text-amber-300 rounded-lg transition-colors disabled:opacity-40"
+            title="Analisi automatica di anomalie e inefficienze nel database"
           >
-            Analizza
+            <Zap className="w-3.5 h-3.5" />
+            Analisi Efficienza
+          </button>
+          <button
+            onClick={handleClear}
+            className="p-1.5 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded-lg transition-colors"
+            title="Cancella conversazione"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        {loadingHistory && (
+          <div className="flex justify-center">
+            <Loader2 className="w-5 h-5 animate-spin text-slate-600" />
+          </div>
+        )}
+
+        {!loadingHistory && messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center py-12">
+            <div className="text-3xl">💬</div>
+            <p className="text-slate-400 font-medium">Inizia una conversazione</p>
+            <p className="text-xs text-slate-600 max-w-sm">
+              Descrivi un problema organizzativo, chiedi di trovare anomalie, o usa <strong className="text-amber-400/80">Analisi Efficienza</strong> per proposte automatiche.
+            </p>
+            <div className="flex flex-wrap gap-2 justify-center mt-2">
+              {[
+                'Cerca persone con contratto scaduto non ancora cessate',
+                'Quali UO hanno più di 10 riporti diretti?',
+                'Trova posizioni senza persona assegnata',
+              ].map(s => (
+                <button key={s} onClick={() => setInput(s)}
+                  className="text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 rounded-full transition-colors">
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {messages.map(msg => (
+          <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[85%] ${msg.role === 'user' ? 'max-w-[70%]' : 'w-full max-w-full'}`}>
+              {msg.role === 'user' ? (
+                <div className="bg-slate-700/70 text-slate-100 text-sm px-4 py-2.5 rounded-2xl rounded-tr-md">
+                  {msg.content}
+                </div>
+              ) : (
+                <div className="bg-slate-800/80 border border-slate-700/50 px-4 py-3 rounded-2xl rounded-tl-md">
+                  {msg.content && <SimpleMarkdown text={msg.content} />}
+                  {msg.proposals && msg.proposals.length > 0 && (
+                    <ProposalsBlock proposals={msg.proposals} messageId={msg.id} />
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-slate-800/80 border border-slate-700/50 px-4 py-3 rounded-2xl rounded-tl-md">
+              <div className="flex items-center gap-2 text-slate-400">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                <span className="text-sm">Analisi in corso…</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input area */}
+      <div className="flex-none border-t border-slate-700 bg-slate-900 p-3">
+        {attachedFile && (
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <div className="flex items-center gap-2 bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-300">
+              <Paperclip className="w-3.5 h-3.5 text-slate-500" />
+              <span className="truncate max-w-48">{attachedFile.name}</span>
+              <button onClick={() => setAttachedFile(null)} className="text-slate-500 hover:text-slate-300 ml-1">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="flex items-end gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_EXTS}
+            className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) setAttachedFile(f); e.target.value = '' }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded-lg transition-colors flex-none"
+            title="Allega documento (PDF, DOCX, XLS…)"
+          >
+            <Paperclip className="w-4 h-4" />
+          </button>
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Descrivi un problema o chiedi un'analisi… (Invio per inviare, Shift+Invio per andare a capo)"
+            rows={2}
+            className="flex-1 bg-slate-800 border border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:border-indigo-500 transition-colors"
+          />
+          <button
+            onClick={handleSend}
+            disabled={loading || (!input.trim() && !attachedFile)}
+            className="p-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl transition-colors flex-none"
+          >
+            <Send className="w-4 h-4" />
           </button>
         </div>
       </div>

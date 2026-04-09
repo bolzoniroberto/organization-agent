@@ -67,7 +67,7 @@ function MenuButton({ label, active, children }: MenuButtonProps) {
 }
 
 export default function TopMenuBar() {
-  const { activeSection, activeView, counts, setActiveSection, setActiveView } = useHRStore()
+  const { activeSection, activeView, counts, companyName, platformName, setActiveSection, setActiveView } = useHRStore()
   const [dark, setDark] = React.useState(true)
 
   const nav = (section: ActiveSection, view: ActiveView) => {
@@ -83,9 +83,9 @@ export default function TopMenuBar() {
     <header className="flex-none h-10 bg-slate-900 border-b border-slate-700 flex items-center px-4 gap-0.5 z-20">
       <div className="flex items-center gap-2 mr-4">
         <Building2 className="w-4 h-4 text-indigo-400" />
-        <span className="font-semibold text-slate-200 text-sm whitespace-nowrap">HR Platform</span>
+        <span className="font-semibold text-slate-200 text-sm whitespace-nowrap">{platformName}</span>
         <span className="text-slate-600 text-xs">·</span>
-        <span className="text-slate-500 text-xs">Sole 24 Ore</span>
+        <span className="text-slate-500 text-xs">{companyName}</span>
       </div>
 
       {counts && (
@@ -97,21 +97,21 @@ export default function TopMenuBar() {
       <nav className="flex items-center gap-0.5">
         <MenuButton label="Organigramma" active={activeSection === 'organigramma'}>
           <MenuItem label="Posizioni" section="organigramma" view="posizioni" onSelect={nav} activeSection={activeSection} activeView={activeView} />
-          <MenuItem label="Persone / Timesheet" section="organigramma" view="persone-ts" onSelect={nav} activeSection={activeSection} activeView={activeView} />
-          <MenuItem label="TNS" section="organigramma" view="tns" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="Timesheet" section="organigramma" view="persone-ts" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="TNS Trasferte" section="organigramma" view="tns" onSelect={nav} activeSection={activeSection} activeView={activeView} />
         </MenuButton>
 
         <MenuButton label="Accordion" active={activeSection === 'accordion'}>
-          <MenuItem label="Unità Organizzative" section="accordion" view="accordion-uo" onSelect={nav} activeSection={activeSection} activeView={activeView} />
-          <MenuItem label="TNS" section="accordion" view="accordion-tns" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="Posizioni" section="accordion" view="accordion-uo" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="TNS Trasferte" section="accordion" view="accordion-tns" onSelect={nav} activeSection={activeSection} activeView={activeView} />
           <MenuItem label="Responsabili" section="accordion" view="accordion-responsabili" onSelect={nav} activeSection={activeSection} activeView={activeView} />
         </MenuButton>
 
         <MenuButton label="Master Data" active={activeSection === 'masterdata'}>
-          <MenuItem label="Nodi Organigramma" section="masterdata" view="nodi" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="Posizioni" section="masterdata" view="nodi" onSelect={nav} activeSection={activeSection} activeView={activeView} />
           <MenuItem label="Persone" section="masterdata" view="persone" onSelect={nav} activeSection={activeSection} activeView={activeView} />
-          <MenuItem label="Ruoli TNS" section="masterdata" view="ruoli-tns" onSelect={nav} activeSection={activeSection} activeView={activeView} />
-          <MenuItem label="Strutture TNS" section="masterdata" view="strutture-tns" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="TNS Trasferte" section="masterdata" view="ruoli-tns" onSelect={nav} activeSection={activeSection} activeView={activeView} />
+          <MenuItem label="Note Spese" section="masterdata" view="strutture-tns" onSelect={nav} activeSection={activeSection} activeView={activeView} />
           <MenuItem label="Variabili Integrative" section="masterdata" view="variabili" onSelect={nav} activeSection={activeSection} activeView={activeView} />
         </MenuButton>
 
@@ -186,6 +186,18 @@ export default function TopMenuBar() {
           ].join(' ')}
         >
           DB
+        </button>
+
+        <button
+          onClick={() => { setActiveSection('impostazioni'); setActiveView('nodi') }}
+          className={[
+            'px-3 py-1.5 text-sm rounded-md transition-colors',
+            activeSection === 'impostazioni'
+              ? 'bg-slate-700 text-slate-100'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          ].join(' ')}
+        >
+          Impostazioni
         </button>
       </nav>
 

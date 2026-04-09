@@ -13,7 +13,7 @@ import ColumnsPanel from './AnagraficaView/ColumnsPanel'
 import VariabiliManager from './AnagraficaView/VariabiliManager'
 import AnomaliePanels from './AnagraficaView/AnomaliePanels'
 
-type SubTab = 'nodi' | 'persone' | 'tns' | 'strutture-tns' | 'variabili' | 'anomalie'
+type SubTab = 'nodi' | 'persone' | 'tns' | 'strutture-tns' | 'variabili' | 'anomalie' | 'cessati' | 'assunti'
 
 const NODI_ALL_COLS = [
   { field: 'id', label: 'ID' },
@@ -149,6 +149,20 @@ export default function AnagraficaView() {
   const [drawerType, setDrawerType] = useState<'nodo' | 'persona'>('nodo')
   const [drawerRecord, setDrawerRecord] = useState<NodoOrganigramma | Persona | null>(null)
   const [drawerMode, setDrawerMode] = useState<'view' | 'edit' | 'create'>('view')
+
+  const [assuntiYear, setAssuntiYear] = useState<string | null>(null)
+  const [cessatiAll, setCessatiAll] = useState<Persona[]>([])
+  const [assuntiAll, setAssuntiAll] = useState<Persona[]>([])
+
+  // Fetch persone con deleted quando si apre cessati o assunti
+  useEffect(() => {
+    if (subTab === 'cessati' || subTab === 'assunti') {
+      api.persone.list(true).then(all => {
+        setCessatiAll(all.filter((p: Persona) => !!p.deleted_at))
+        setAssuntiAll(all.filter((p: Persona) => !p.deleted_at && !!p.data_assunzione_gruppo))
+      })
+    }
+  }, [subTab])
 
   const [nodiVisible, setNodiVisible] = useState<Set<string>>(new Set(NODI_DEFAULT_VISIBLE))
   const [personeVisible, setPersoneVisible] = useState<Set<string>>(new Set(PERSONE_DEFAULT_VISIBLE))
@@ -390,6 +404,59 @@ export default function AnagraficaView() {
     return base
   }, [struttTnsVisible, variabiliDef, visibleVars])
 
+  // ── ColDef: Cessati ───────────────────────────────────────────────────────
+  const cessatiCols: ColDef[] = useMemo(() => [
+    { field: 'cognome',            headerName: 'Cognome',        flex: 1.5, editable: false, cellClass: 'text-sm text-slate-200 font-medium' },
+    { field: 'nome',               headerName: 'Nome',           flex: 1.5, editable: false, cellClass: 'text-sm text-slate-200' },
+    { field: 'cf',                 headerName: 'CF',             width: 165, editable: false, cellClass: 'font-mono text-xs text-slate-400' },
+    { field: 'matricola',          headerName: 'Matricola',      width: 100, editable: false, cellClass: 'font-mono text-xs text-slate-400' },
+    { field: 'societa',            headerName: 'Società',        width: 130, editable: false, cellClass: 'text-xs text-slate-400' },
+    { field: 'area',               headerName: 'Area',           flex: 1,    editable: false, cellClass: 'text-xs text-slate-400' },
+    { field: 'qualifica',          headerName: 'Qualifica',      flex: 1,    editable: false, cellClass: 'text-xs text-slate-400' },
+    { field: 'data_assunzione',    headerName: 'Assunzione',     width: 115, editable: false, cellClass: 'text-xs text-slate-500' },
+    { field: 'data_fine_rapporto', headerName: 'Fine Rapporto',  width: 120, editable: false, cellClass: 'text-xs text-amber-400/80' },
+    { field: 'deleted_at',         headerName: 'Disattivato il', width: 150, editable: false, cellClass: 'text-xs text-red-400/80',
+      initialSort: 'desc' as const,
+      valueFormatter: (p: { value: string | null }) => p.value ? p.value.substring(0, 10) : '' },
+    {
+      headerName: '', width: 46, pinned: 'right' as const, sortable: false, editable: false, filter: false, floatingFilter: false, suppressFillHandle: true,
+      cellRenderer: (p: ICellRendererParams) => (
+        <button onClick={() => openDrawer('persona', p.data, 'view')} className="flex items-center justify-center w-full h-full text-slate-600 hover:text-slate-300">
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      )
+    },
+  ], [openDrawer])
+
+  // ── ColDef: Assunti ───────────────────────────────────────────────────────
+  const assuntiCols: ColDef[] = useMemo(() => [
+    { field: 'cognome',               headerName: 'Cognome',           flex: 1.5, editable: false, cellClass: 'text-sm text-slate-200 font-medium' },
+    { field: 'nome',                  headerName: 'Nome',              flex: 1.5, editable: false, cellClass: 'text-sm text-slate-200' },
+    { field: 'cf',                    headerName: 'CF',                width: 165, editable: false, cellClass: 'font-mono text-xs text-slate-400' },
+    { field: 'matricola',             headerName: 'Matricola',         width: 100, editable: false, cellClass: 'font-mono text-xs text-slate-400' },
+    { field: 'societa',               headerName: 'Società',           width: 130, editable: false, cellClass: 'text-xs text-slate-400' },
+    { field: 'area',                  headerName: 'Area',              flex: 1,    editable: false, cellClass: 'text-xs text-slate-400' },
+    { field: 'qualifica',             headerName: 'Qualifica',         flex: 1,    editable: false, cellClass: 'text-xs text-slate-400' },
+    { field: 'tipo_contratto',        headerName: 'Contratto',         width: 110, editable: false, cellClass: 'text-xs text-slate-400' },
+    { field: 'data_assunzione',       headerName: 'Ass. Soc.',         width: 115, editable: false, cellClass: 'text-xs text-slate-500',
+      comparator: (a: string, b: string) => { const t = (d: string) => { if (!d) return 0; const [dd, mm, yyyy] = d.split('/'); return new Date(`${yyyy}-${mm}-${dd}`).getTime() }; return t(a) - t(b) } },
+    { field: 'data_assunzione_gruppo',headerName: 'Ass. Gruppo',       width: 120, editable: false, cellClass: 'text-xs text-indigo-300',
+      initialSort: 'desc' as const,
+      comparator: (a: string, b: string) => {
+        const toTs = (d: string) => { if (!d) return 0; const [dd, mm, yyyy] = d.split('/'); return new Date(`${yyyy}-${mm}-${dd}`).getTime() }
+        return toTs(a) - toTs(b)
+      } },
+    { field: 'azienda_provenienza',   headerName: 'Azienda Provenienza', width: 150, editable: false, cellClass: 'text-xs text-slate-400' },
+    {
+      headerName: '', width: 46, pinned: 'right' as const, sortable: false, editable: false, filter: false, floatingFilter: false, suppressFillHandle: true,
+      cellRenderer: (p: ICellRendererParams) => (
+        <button onClick={() => openDrawer('persona', p.data, 'view')} className="flex items-center justify-center w-full h-full text-slate-600 hover:text-slate-300">
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      )
+    },
+  ], [openDrawer])
+
   // ── Merge variabili values into row data ──────────────────────────────────
   const vByEntityId = useMemo(() => {
     const map = new Map<string, Record<string, string | null>>()
@@ -464,6 +531,52 @@ export default function AnagraficaView() {
     )
   }, [struttureTns, search])
 
+  const filteredCessati = useMemo(() => {
+    if (!search) return cessatiAll
+    const lower = search.toLowerCase()
+    return cessatiAll.filter(p =>
+      p.cf?.toLowerCase().includes(lower) ||
+      p.cognome?.toLowerCase().includes(lower) ||
+      p.nome?.toLowerCase().includes(lower) ||
+      p.matricola?.toLowerCase().includes(lower) ||
+      p.societa?.toLowerCase().includes(lower) ||
+      p.area?.toLowerCase().includes(lower)
+    )
+  }, [cessatiAll, search])
+
+  const getYear = (d: string | null | undefined): string | null => {
+    if (!d) return null
+    // DD/MM/YYYY
+    if (d.includes('/')) return d.split('/')[2]?.substring(0, 4) ?? null
+    // YYYY-MM-DD
+    return d.substring(0, 4)
+  }
+
+  const assuntiYears = useMemo(() => {
+    const years = new Set<string>()
+    assuntiAll.forEach(p => {
+      const y = getYear(p.data_assunzione_gruppo)
+      if (y) years.add(y)
+    })
+    return Array.from(years).sort((a, b) => b.localeCompare(a))
+  }, [assuntiAll])
+
+  const filteredAssunti = useMemo(() => {
+    const base = assuntiYear
+      ? assuntiAll.filter(p => getYear(p.data_assunzione_gruppo) === assuntiYear)
+      : assuntiAll
+    if (!search) return base
+    const lower = search.toLowerCase()
+    return base.filter(p =>
+      p.cf?.toLowerCase().includes(lower) ||
+      p.cognome?.toLowerCase().includes(lower) ||
+      p.nome?.toLowerCase().includes(lower) ||
+      p.matricola?.toLowerCase().includes(lower) ||
+      p.societa?.toLowerCase().includes(lower) ||
+      p.area?.toLowerCase().includes(lower)
+    )
+  }, [assuntiAll, search, assuntiYear])
+
   const getRowClass = (params: { data?: { deleted_at?: string | null } }) =>
     params.data?.deleted_at ? 'opacity-50 line-through' : ''
 
@@ -473,22 +586,24 @@ export default function AnagraficaView() {
   const allCols = subTab === 'nodi' ? NODI_ALL_COLS : subTab === 'persone' ? PERSONE_ALL_COLS : subTab === 'strutture-tns' ? STRUTT_TNS_ALL_COLS : TNS_ALL_COLS
   const defaultCols = subTab === 'nodi' ? NODI_DEFAULT_VISIBLE : subTab === 'persone' ? PERSONE_DEFAULT_VISIBLE : subTab === 'strutture-tns' ? STRUTT_TNS_DEFAULT_VISIBLE : TNS_DEFAULT_VISIBLE
   const canShowColumnsPanel = subTab === 'nodi' || subTab === 'persone' || subTab === 'tns' || subTab === 'strutture-tns'
-  const isGridTab = subTab === 'nodi' || subTab === 'persone' || subTab === 'tns' || subTab === 'strutture-tns'
+  const isGridTab = subTab === 'nodi' || subTab === 'persone' || subTab === 'tns' || subTab === 'strutture-tns' || subTab === 'cessati' || subTab === 'assunti'
 
   return (
     <div className="flex flex-col h-full">
       {/* Tab bar */}
       <div className="flex items-center gap-3 px-4 py-2 bg-slate-900 border-b border-slate-700">
         <div className="flex gap-1">
-          {(['nodi', 'persone', 'tns', 'strutture-tns', 'variabili', 'anomalie'] as SubTab[]).map(tab => (
-            <button key={tab} onClick={() => { setSubTab(tab); setSearch('') }}
+          {(['nodi', 'persone', 'tns', 'strutture-tns', 'variabili', 'anomalie', 'cessati', 'assunti'] as SubTab[]).map(tab => (
+            <button key={tab} onClick={() => { setSubTab(tab); setSearch(''); if (tab !== 'assunti') setAssuntiYear(null) }}
               className={['px-3 py-1.5 text-sm rounded-md transition-colors',
                 subTab === tab ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               ].join(' ')}>
-              {tab === 'nodi' ? `Nodi (${nodi.filter(n => !n.deleted_at).length})` :
+              {tab === 'nodi' ? `Posizioni (${nodi.filter(n => !n.deleted_at).length})` :
                tab === 'persone' ? `Persone (${persone.filter(p => !p.deleted_at).length})` :
-               tab === 'tns' ? `Ruoli TNS (${persone.filter(p => p.codice_tns != null).length})` :
-               tab === 'strutture-tns' ? `Strutture TNS (${struttureTns.length})` :
+               tab === 'tns' ? `TNS Trasferte (${persone.filter(p => p.codice_tns != null).length})` :
+               tab === 'strutture-tns' ? `Note Spese (${struttureTns.length})` :
+               tab === 'cessati' ? `Cessati (${cessatiAll.length || '…'})` :
+               tab === 'assunti' ? `Assunti (${assuntiAll.length || '…'})` :
                tab === 'variabili' ? 'Variabili' : 'Anomalie'}
             </button>
           ))}
@@ -505,7 +620,7 @@ export default function AnagraficaView() {
                 className="pl-8 pr-3 py-1.5 text-sm bg-slate-800 border border-slate-600 rounded-md w-52 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
             </div>
 
-            {subTab !== 'tns' && subTab !== 'strutture-tns' && (
+            {subTab !== 'tns' && subTab !== 'strutture-tns' && subTab !== 'cessati' && subTab !== 'assunti' && (
               <button onClick={() => setShowDeleted(v => !v)}
                 className={['flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md border transition-colors',
                   showDeleted ? 'bg-red-900/20 border-red-700 text-red-300' : 'border-slate-600 text-slate-400 hover:text-slate-200'
@@ -515,13 +630,26 @@ export default function AnagraficaView() {
               </button>
             )}
 
-            <button onClick={() => setShowColumnsPanel(true)}
-              className="flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md border border-slate-600 text-slate-400 hover:text-slate-200 transition-colors">
-              <Columns className="w-3.5 h-3.5" />
-              Colonne
-            </button>
+            {subTab === 'assunti' && assuntiYears.length > 0 && (
+              <select
+                value={assuntiYear ?? ''}
+                onChange={e => setAssuntiYear(e.target.value || null)}
+                className="text-sm bg-slate-800 border border-slate-600 rounded-md px-2 py-1.5 text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="">Tutti gli anni</option>
+                {assuntiYears.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            )}
 
-            {subTab !== 'tns' && subTab !== 'strutture-tns' && (
+            {canShowColumnsPanel && (
+              <button onClick={() => setShowColumnsPanel(true)}
+                className="flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md border border-slate-600 text-slate-400 hover:text-slate-200 transition-colors">
+                <Columns className="w-3.5 h-3.5" />
+                Colonne
+              </button>
+            )}
+
+            {subTab !== 'tns' && subTab !== 'strutture-tns' && subTab !== 'cessati' && subTab !== 'assunti' && (
               <button
                 onClick={() => openDrawer(subTab === 'nodi' ? 'nodo' : 'persona', null, 'create')}
                 className="flex items-center gap-1.5 text-sm bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700 transition-colors font-medium">
@@ -537,14 +665,14 @@ export default function AnagraficaView() {
                 <Download className="w-3.5 h-3.5" />
                 TNS ORG XLS
               </button>
-            ) : (
+            ) : subTab !== 'cessati' && subTab !== 'assunti' ? (
               <button
                 onClick={() => { const base = process.env.NEXT_PUBLIC_BASE_PATH ?? ''; const a = document.createElement('a'); a.href = `${base}/api/export`; a.download = ''; document.body.appendChild(a); a.click(); a.remove() }}
                 className="flex items-center gap-1.5 text-sm border border-slate-600 text-slate-400 hover:text-slate-200 px-2.5 py-1.5 rounded-md transition-colors">
                 <Download className="w-3.5 h-3.5" />
                 XLS
               </button>
-            )}
+            ) : null}
           </>
         )}
       </div>
@@ -609,6 +737,30 @@ export default function AnagraficaView() {
             suppressRowClickSelection={true}
             onCellValueChanged={handleCellValueChanged}
             stopEditingWhenCellsLoseFocus={true}
+            animateRows={true}
+            rowHeight={36}
+            headerHeight={36}
+          />
+        )}
+        {subTab === 'cessati' && (
+          <AgGridReact
+            rowData={filteredCessati}
+            columnDefs={cessatiCols}
+            defaultColDef={{ resizable: true, sortable: true, filter: true, floatingFilter: true }}
+            rowSelection="multiple"
+            suppressRowClickSelection={true}
+            animateRows={true}
+            rowHeight={36}
+            headerHeight={36}
+          />
+        )}
+        {subTab === 'assunti' && (
+          <AgGridReact
+            rowData={filteredAssunti}
+            columnDefs={assuntiCols}
+            defaultColDef={{ resizable: true, sortable: true, filter: true, floatingFilter: true }}
+            rowSelection="multiple"
+            suppressRowClickSelection={true}
             animateRows={true}
             rowHeight={36}
             headerHeight={36}
